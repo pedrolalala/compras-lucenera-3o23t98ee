@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase/client'
-import { mockNecessidadeCompra, mockEntregaFutura } from './mock-data'
 
 export interface NecessidadeCompraRow {
   produto_id: string
@@ -30,45 +29,66 @@ export interface EntregaFuturaRow {
   atualizado_em: string | null
 }
 
-export async function getNecessidadeCompra(searchTerm?: string): Promise<NecessidadeCompraRow[]> {
-  try {
-    let query = (supabase as any).from('vw_necessidade_compra').select('*')
+const BATCH_SIZE = 500
 
-    if (searchTerm) {
-      query = query.or(`produto.ilike.%${searchTerm}%,produto_codigo.ilike.%${searchTerm}%`)
-    }
-
-    const { data, error } = await query.order('necessidade_compra', { ascending: false })
-    if (error) throw error
-    if (data && data.length > 0) return data as NecessidadeCompraRow[]
-    return filterMock(mockNecessidadeCompra, searchTerm)
-  } catch {
-    return filterMock(mockNecessidadeCompra, searchTerm)
-  }
+function applySearchFilter(query: any, searchTerm?: string) {
+  if (!searchTerm) return query
+  return query.or(`produto.ilike.%${searchTerm}%,produto_codigo.ilike.%${searchTerm}%`)
 }
 
-function filterMock(rows: NecessidadeCompraRow[], searchTerm?: string): NecessidadeCompraRow[] {
-  if (!searchTerm) return rows
-  const term = searchTerm.toLowerCase()
-  return rows.filter(
-    (r) =>
-      r.produto.toLowerCase().includes(term) ||
-      (r.produto_codigo ?? '').toLowerCase().includes(term),
+export async function getNecessidadeCompra(
+  searchTerm?: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<NecessidadeCompraRow[]> {
+  const countQuery = applySearchFilter(
+    (supabase as any).from('vw_necessidade_compra').select('*', { count: 'exact', head: true }),
+    searchTerm,
   )
+
+  const { count, error: countError } = await countQuery
+  if (countError) throw countError
+
+  const total = count ?? 0
+  if (total === 0) {
+    onProgress?.(0, 0)
+    return []
+  }
+
+  const allRows: NecessidadeCompraRow[] = []
+  let start = 0
+
+  while (start < total) {
+    const end = Math.min(start + BATCH_SIZE - 1, total - 1)
+    let batchQuery = (supabase as any)
+      .from('vw_necessidade_compra')
+      .select('*')
+      .range(start, end)
+      .order('necessidade_compra', { ascending: false })
+
+    batchQuery = applySearchFilter(batchQuery, searchTerm)
+
+    const { data, error } = await batchQuery
+    if (error) throw error
+
+    if (data) {
+      allRows.push(...(data as NecessidadeCompraRow[]))
+    }
+
+    onProgress?.(allRows.length, total)
+    start += BATCH_SIZE
+  }
+
+  return allRows
 }
 
 export async function getEntregaFuturaPorProduto(produtoId: string): Promise<EntregaFuturaRow[]> {
-  try {
-    const { data, error } = await (supabase as any)
-      .from('vw_entrega_futura_projeto_item')
-      .select('*')
-      .eq('produto_id', produtoId)
-      .order('atualizado_em', { ascending: false })
+  const { data, error } = await (supabase as any)
+    .from('vw_entrega_futura_projeto_item')
+    .select('*')
+    .eq('produto_id', produtoId)
+    .order('atualizado_em', { ascending: false })
 
-    if (error) throw error
-    if (data && data.length > 0) return data as EntregaFuturaRow[]
-    return mockEntregaFutura[produtoId] ?? []
-  } catch {
-    return mockEntregaFutura[produtoId] ?? []
-  }
+  if (error) throw error
+
+  return (data as EntregaFuturaRow[]) ?? []
 }

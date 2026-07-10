@@ -14,7 +14,11 @@ import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
 import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
-import { getNecessidadeCompra, type NecessidadeCompraRow } from '@/services/necessidade-compra'
+import {
+  getNecessidadeCompra,
+  type NecessidadeCompraRow,
+  type ProgressInfo,
+} from '@/services/necessidade-compra'
 
 const VISIBLE_BATCH = 100
 
@@ -29,6 +33,8 @@ export default function NecessidadeCompra() {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
   const [modalOpen, setModalOpen] = useState(false)
   const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
+  const [progress, setProgress] = useState<{ loaded: number; total: number } | null>(null)
+  const [progress, setProgress] = useState<ProgressInfo | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -37,8 +43,11 @@ export default function NecessidadeCompra() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    setProgress(null)
     try {
-      const data = await getNecessidadeCompra(debouncedSearch || undefined)
+      const data = await getNecessidadeCompra(debouncedSearch || undefined, (info) => {
+        setProgress(info)
+      })
       setRows(data)
     } catch {
       toast({
@@ -48,6 +57,7 @@ export default function NecessidadeCompra() {
       })
     } finally {
       setLoading(false)
+      setProgress(null)
     }
   }, [debouncedSearch, toast])
 
@@ -135,8 +145,10 @@ export default function NecessidadeCompra() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-hidden flex flex-col min-h-0">
             <div className="px-4 py-2 text-xs text-slate-500 border-b border-slate-100 shrink-0">
               {loading
-                ? 'Carregando...'
-                : `${visibleRows.length} de ${rows.length} produto${rows.length !== 1 ? 's' : ''} com necessidade`}
+                ? progress
+                  ? `Carregando... ${progress.loaded} de ${progress.total} produtos`
+                  : 'Carregando...'
+                : `${visibleRows.length} de ${rows.length} produto(s) com necessidade`}
             </div>
             <div className="overflow-auto flex-1" onScroll={handleScroll}>
               <Table className="w-full table-fixed">
