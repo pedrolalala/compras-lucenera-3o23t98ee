@@ -172,7 +172,11 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION public.adicionar_item_pedido(
-  p_pedido_id UUID, p_solicitacao_id UUID DEFAULT NULL, p_produto_id UUID, p_quantidade NUMERIC, p_custo_unitario NUMERIC
+  p_pedido_id UUID,
+  p_solicitacao_id UUID DEFAULT NULL,
+  p_produto_id UUID DEFAULT NULL,
+  p_quantidade NUMERIC DEFAULT NULL,
+  p_custo_unitario NUMERIC DEFAULT NULL
 ) RETURNS UUID AS $$
 DECLARE v_id UUID;
 BEGIN
