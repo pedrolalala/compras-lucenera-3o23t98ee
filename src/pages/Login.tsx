@@ -1,20 +1,29 @@
 import { useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
-import { Hexagon } from 'lucide-react'
+import { Hexagon, ArrowLeft } from 'lucide-react'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
   const { signIn } = useAuth()
+  const navigate = useNavigate()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setErrorMsg('')
     setLoading(true)
-    await signIn(email, password)
+    const { error } = await signIn(email, password)
+    if (error) {
+      setErrorMsg('Credenciais inválidas. Verifique e tente novamente.')
+    } else {
+      navigate('/')
+    }
     setLoading(false)
   }
 
@@ -32,6 +41,11 @@ export default function Login() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
+            {errorMsg && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                {errorMsg}
+              </p>
+            )}
             <div className="space-y-2">
               <Input
                 type="email"
@@ -60,6 +74,15 @@ export default function Login() {
               {loading ? 'Entrando...' : 'Entrar no Sistema'}
             </Button>
           </form>
+          <div className="mt-6 text-center">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Voltar ao início
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>
