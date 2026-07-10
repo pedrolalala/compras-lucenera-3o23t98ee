@@ -13,6 +13,7 @@ import { Search, ShoppingCart, X, RefreshCw, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
+import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
 import { getNecessidadeCompra, type NecessidadeCompraRow } from '@/services/necessidade-compra'
 
 const VISIBLE_BATCH = 100
@@ -26,6 +27,8 @@ export default function NecessidadeCompra() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedProdutoId, setSelectedProdutoId] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -154,15 +157,18 @@ export default function NecessidadeCompra() {
                     <TableHead className="w-[14%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Necessidade
                     </TableHead>
-                    <TableHead className="w-[10%] pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[10%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Projetos
+                    </TableHead>
+                    <TableHead className="w-[10%] pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Compra
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={7} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2">
                           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                           <span className="text-xs text-slate-500">Carregando...</span>
@@ -225,10 +231,27 @@ export default function NecessidadeCompra() {
                             </span>
                           </span>
                         </TableCell>
-                        <TableCell className="pr-4 sm:pr-6 text-right align-middle py-2">
+                        <TableCell className="text-right align-middle py-2">
                           <span className="text-sm text-slate-500">
                             {r.projetos_com_entrega_futura}
                           </span>
+                        </TableCell>
+                        <TableCell
+                          className="pr-4 sm:pr-6 text-right align-middle py-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                            onClick={() => {
+                              setProdutoParaCompra(r)
+                              setModalOpen(true)
+                            }}
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+                            Comprar
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))
@@ -248,6 +271,16 @@ export default function NecessidadeCompra() {
           <NecessidadeDetailsPanel produto={selectedProduto} />
         </div>
       </div>
+
+      <ModalRegistrarCompra
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        produto={produtoParaCompra}
+        onSuccess={() => {
+          setModalOpen(false)
+          loadData()
+        }}
+      />
     </div>
   )
 }
