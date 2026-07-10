@@ -6,8 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/com
 import { Hexagon } from 'lucide-react'
 
 export default function Login() {
-  const [email, setEmail] = useState('pedro@lucenera.com.br')
-  const [password, setPassword] = useState('Skip@Pass')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const { signIn } = useAuth()
 
