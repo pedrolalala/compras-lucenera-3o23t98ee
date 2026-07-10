@@ -1,11 +1,20 @@
 {
   "_versions": {
-    "salvar-projeto": 38,
-    "chat-agent": 23,
-    "generate-report": 45,
-    "sync-sharepoint": 22,
-    "enviar-confirmacao-email": 22,
-    "parse-budget-pdf": 23,
-    "process-budget-pdf": 21
+    "salvar-projeto": 52,
+    "update-project": 43,
+    "chat-consulta": 40,
+    "chat-agent": 37,
+    "welcome-email": 38,
+    "generate-report": 59,
+    "sync-sharepoint": 36,
+    "sync-teams": 36,
+    "enviar-confirmacao-email": 36,
+    "parse-budget-pdf": 37,
+    "process-budget-pdf": 35,
+    "process-remittance": 30,
+    "process-billing-automation": 8,
+    "generate-cross-system-code": 5,
+    "exchange-cross-system-code": 5,
+    "sync-fechamentos-automatica": 2
   }
 }

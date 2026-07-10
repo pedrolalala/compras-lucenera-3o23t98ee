@@ -26,14 +26,14 @@ export interface CriarPedidoResult {
 
 export async function criarPedidoCompra(input: CriarPedidoInput): Promise<CriarPedidoResult> {
   const { data, error } = await (supabase as any).rpc('criar_pedido_compra_de_necessidade', {
-    p_produto_id:            input.produto_id,
-    p_fornecedor_id:         input.fornecedor_id,
-    p_quantidade:            input.quantidade,
-    p_custo_unitario:        input.custo_unitario,
-    p_numero:                input.numero,
+    p_produto_id: input.produto_id,
+    p_fornecedor_id: input.fornecedor_id,
+    p_quantidade: input.quantidade,
+    p_custo_unitario: input.custo_unitario,
+    p_numero: input.numero,
     p_data_prevista_entrega: input.data_prevista_entrega ?? null,
-    p_condicoes_pagamento:   input.condicoes_pagamento ?? null,
-    p_observacao:            input.observacao ?? null,
+    p_condicoes_pagamento: input.condicoes_pagamento ?? null,
+    p_observacao: input.observacao ?? null,
   })
   if (error) throw error
   return data as CriarPedidoResult

@@ -59,7 +59,9 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
     debounceRef.current = setTimeout(() => {
       carregarFornecedores(form.fornecedorSearch)
     }, 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
   }, [form.fornecedorSearch, open])
 
   async function carregarFornecedores(search: string) {
@@ -75,7 +77,12 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
   }
 
   function selecionarFornecedor(f: Fornecedor) {
-    setForm((prev) => ({ ...prev, fornecedorId: f.id, fornecedorNome: f.nome, fornecedorSearch: '' }))
+    setForm((prev) => ({
+      ...prev,
+      fornecedorId: f.id,
+      fornecedorNome: f.nome,
+      fornecedorSearch: '',
+    }))
     setShowList(false)
   }
 
@@ -87,11 +94,7 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
   const qtd = parseFloat(form.quantidade)
   const custo = parseFloat(form.custoUnitario)
   const canSubmit =
-    !!form.fornecedorId &&
-    qtd > 0 &&
-    custo > 0 &&
-    form.numero.trim().length > 0 &&
-    !loading
+    !!form.fornecedorId && qtd > 0 && custo > 0 && form.numero.trim().length > 0 && !loading
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -99,14 +102,14 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
     setLoading(true)
     try {
       const result = await criarPedidoCompra({
-        produto_id:            produto.produto_id,
-        fornecedor_id:         form.fornecedorId,
-        quantidade:            qtd,
-        custo_unitario:        custo,
-        numero:                form.numero.trim(),
+        produto_id: produto.produto_id,
+        fornecedor_id: form.fornecedorId,
+        quantidade: qtd,
+        custo_unitario: custo,
+        numero: form.numero.trim(),
         data_prevista_entrega: form.dataPrevista || undefined,
-        condicoes_pagamento:   form.condicoesPagamento.trim() || undefined,
-        observacao:            form.observacao.trim() || undefined,
+        condicoes_pagamento: form.condicoesPagamento.trim() || undefined,
+        observacao: form.observacao.trim() || undefined,
       })
       toast({
         title: 'Pedido registrado',
@@ -126,7 +129,10 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
 
   if (!produto) return null
 
-  const totalEstimado = qtd > 0 && custo > 0 ? (qtd * custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : null
+  const totalEstimado =
+    qtd > 0 && custo > 0
+      ? (qtd * custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -159,8 +165,14 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
             </Label>
             {form.fornecedorId ? (
               <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-emerald-50 border border-emerald-200">
-                <span className="flex-1 text-sm font-medium text-emerald-800">{form.fornecedorNome}</span>
-                <button type="button" onClick={limparFornecedor} className="text-emerald-400 hover:text-emerald-600">
+                <span className="flex-1 text-sm font-medium text-emerald-800">
+                  {form.fornecedorNome}
+                </span>
+                <button
+                  type="button"
+                  onClick={limparFornecedor}
+                  className="text-emerald-400 hover:text-emerald-600"
+                >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -185,14 +197,19 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                         <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
                       </div>
                     ) : fornecedores.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-4">Nenhum fornecedor encontrado.</p>
+                      <p className="text-xs text-slate-400 text-center py-4">
+                        Nenhum fornecedor encontrado.
+                      </p>
                     ) : (
                       fornecedores.map((f) => (
                         <button
                           key={f.id}
                           type="button"
                           className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
-                          onMouseDown={(e) => { e.preventDefault(); selecionarFornecedor(f) }}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selecionarFornecedor(f)
+                          }}
                         >
                           {f.nome}
                         </button>
