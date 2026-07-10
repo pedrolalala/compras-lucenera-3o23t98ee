@@ -136,35 +136,35 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[680px] max-h-[92vh] overflow-y-auto p-8">
+        {' '}
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <ShoppingCart className="w-4 h-4 text-emerald-600" />
             Registrar Pedido de Compra
           </DialogTitle>
         </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+        <form onSubmit={handleSubmit} className="space-y-6 pt-2">
           {/* Produto */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">Produto</Label>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 border border-slate-200">
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">Produto</Label>
+            <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-slate-50 border border-slate-200">
               <span className="text-sm font-medium text-slate-800 truncate">{produto.produto}</span>
               {produto.produto_codigo && (
-                <span className="shrink-0 font-mono text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                <span className="shrink-0 font-mono text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">
                   {produto.produto_codigo}
                 </span>
               )}
             </div>
           </div>
 
-          {/* Fornecedor */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">
-              Fornecedor <span className="text-red-500">*</span>
+          {/* Fornecedor (Marca) */}
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
+              Marca / Fornecedor <span className="text-red-500">*</span>
             </Label>
             {form.fornecedorId ? (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-emerald-50 border border-emerald-200">
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200">
                 <span className="flex-1 text-sm font-medium text-emerald-800">
                   {form.fornecedorNome}
                 </span>
@@ -173,15 +173,15 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                   onClick={limparFornecedor}
                   className="text-emerald-400 hover:text-emerald-600"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             ) : (
               <div className="relative" ref={listRef}>
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 <Input
-                  placeholder="Buscar fornecedor..."
-                  className="pl-8 h-9 text-sm"
+                  placeholder="Buscar marca ou fornecedor..."
+                  className="pl-10 h-11 text-sm"
                   value={form.fornecedorSearch}
                   onChange={(e) => {
                     setForm((prev) => ({ ...prev, fornecedorSearch: e.target.value }))
@@ -191,21 +191,21 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                   autoComplete="off"
                 />
                 {showList && (
-                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-44">
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
                     {loadingFornecedores ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                      <div className="flex items-center justify-center py-5">
+                        <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                       </div>
                     ) : fornecedores.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-4">
-                        Nenhum fornecedor encontrado.
+                      <p className="text-sm text-slate-400 text-center py-5">
+                        Nenhuma marca encontrada.
                       </p>
                     ) : (
                       fornecedores.map((f) => (
                         <button
                           key={f.id}
                           type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
                           onMouseDown={(e) => {
                             e.preventDefault()
                             selecionarFornecedor(f)
@@ -222,9 +222,9 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
           </div>
 
           {/* Quantidade e Custo */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-500">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">
                 Quantidade <span className="text-red-500">*</span>
               </Label>
               <Input
@@ -232,13 +232,13 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                 min="0.001"
                 step="0.001"
                 placeholder="0"
-                className="h-9 text-sm"
+                className="h-11 text-sm"
                 value={form.quantidade}
                 onChange={(e) => setForm((prev) => ({ ...prev, quantidade: e.target.value }))}
               />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-500">
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">
                 Custo unitário (R$) <span className="text-red-500">*</span>
               </Label>
               <Input
@@ -246,7 +246,7 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                 min="0.01"
                 step="0.01"
                 placeholder="0,00"
-                className="h-9 text-sm"
+                className="h-11 text-sm"
                 value={form.custoUnitario}
                 onChange={(e) => setForm((prev) => ({ ...prev, custoUnitario: e.target.value }))}
               />
@@ -254,71 +254,72 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
           </div>
 
           {totalEstimado && (
-            <p className="text-xs text-slate-500 text-right -mt-2">
+            <p className="text-sm text-slate-500 text-right -mt-2">
               Total estimado: <span className="font-semibold text-slate-700">{totalEstimado}</span>
             </p>
           )}
 
           {/* Número do pedido */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
               Nº do pedido / referência <span className="text-red-500">*</span>
             </Label>
             <Input
               placeholder="ex: PC-2026-001"
-              className="h-9 text-sm"
+              className="h-11 text-sm"
               value={form.numero}
               onChange={(e) => setForm((prev) => ({ ...prev, numero: e.target.value }))}
             />
           </div>
 
           {/* Data prevista */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">Data prevista de entrega (opcional)</Label>
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">Data prevista de entrega (opcional)</Label>
             <Input
               type="date"
-              className="h-9 text-sm"
+              className="h-11 text-sm"
               value={form.dataPrevista}
               onChange={(e) => setForm((prev) => ({ ...prev, dataPrevista: e.target.value }))}
             />
           </div>
 
           {/* Condições de pagamento */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">Condições de pagamento (opcional)</Label>
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">Condições de pagamento (opcional)</Label>
             <Input
               placeholder="ex: 30/60/90 dias"
-              className="h-9 text-sm"
+              className="h-11 text-sm"
               value={form.condicoesPagamento}
               onChange={(e) => setForm((prev) => ({ ...prev, condicoesPagamento: e.target.value }))}
             />
           </div>
 
           {/* Observação */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">Observação (opcional)</Label>
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">Observação (opcional)</Label>
             <Textarea
               placeholder="Observações adicionais..."
               className="text-sm resize-none"
-              rows={2}
+              rows={3}
               value={form.observacao}
               onChange={(e) => setForm((prev) => ({ ...prev, observacao: e.target.value }))}
             />
           </div>
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="pt-4 gap-3">
             <Button
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={loading}
+              className="h-11"
             >
               Cancelar
             </Button>
             <Button
               type="submit"
               disabled={!canSubmit}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[140px]"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[160px] h-11"
             >
               {loading ? (
                 <>
