@@ -33,7 +33,6 @@ export default function NecessidadeCompra() {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
   const [modalOpen, setModalOpen] = useState(false)
   const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
-  const [progress, setProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
 
   useEffect(() => {

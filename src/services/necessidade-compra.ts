@@ -11,6 +11,11 @@ export interface NecessidadeCompraRow {
   projetos_com_entrega_futura: number
 }
 
+export interface ProgressInfo {
+  loaded: number
+  total: number
+}
+
 export interface EntregaFuturaRow {
   projeto_item_id: string
   produto_id: string
@@ -38,7 +43,7 @@ function applySearchFilter(query: any, searchTerm?: string) {
 
 export async function getNecessidadeCompra(
   searchTerm?: string,
-  onProgress?: (loaded: number, total: number) => void,
+  onProgress?: (info: ProgressInfo) => void,
 ): Promise<NecessidadeCompraRow[]> {
   const countQuery = applySearchFilter(
     (supabase as any).from('vw_necessidade_compra').select('*', { count: 'exact', head: true }),
@@ -50,7 +55,7 @@ export async function getNecessidadeCompra(
 
   const total = count ?? 0
   if (total === 0) {
-    onProgress?.(0, 0)
+    onProgress?.({ loaded: 0, total: 0 })
     return []
   }
 
@@ -74,7 +79,7 @@ export async function getNecessidadeCompra(
       allRows.push(...(data as NecessidadeCompraRow[]))
     }
 
-    onProgress?.(allRows.length, total)
+    onProgress?.({ loaded: allRows.length, total })
     start += BATCH_SIZE
   }
 
