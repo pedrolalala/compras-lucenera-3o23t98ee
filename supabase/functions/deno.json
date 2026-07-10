@@ -1,0 +1,11 @@
+{
+  "_versions": {
+    "salvar-projeto": 38,
+    "chat-agent": 23,
+    "generate-report": 45,
+    "sync-sharepoint": 22,
+    "enviar-confirmacao-email": 22,
+    "parse-budget-pdf": 23,
+    "process-budget-pdf": 21
+  }
+}
