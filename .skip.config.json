@@ -31,7 +31,5 @@
     "vite-plugin-react-uid.js",
     "README.md"
   ],
-  "deployment": {
-    "lastDevBuildRef": "effa81f"
-  }
+  "deployment": {}
 }
