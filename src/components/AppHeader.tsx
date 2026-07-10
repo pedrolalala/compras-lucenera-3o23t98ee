@@ -9,7 +9,9 @@ export function AppHeader() {
         <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
         <div className="flex items-center gap-2">
           <ShoppingCart className="w-4 h-4 text-primary" />
-          <span className="font-semibold text-base sm:text-lg text-slate-800">Necessidade de Compra</span>
+          <span className="font-semibold text-base sm:text-lg text-slate-800">
+            Necessidade de Compra
+          </span>
           <span className="hidden sm:inline text-sm text-slate-400 ml-2">Estoque · Compras</span>
         </div>
       </div>

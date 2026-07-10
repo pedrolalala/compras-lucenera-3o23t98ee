@@ -35,10 +35,18 @@ export function NecessidadeDetailsPanel({ produto }: { produto: NecessidadeCompr
     let cancelled = false
     setLoading(true)
     getEntregaFuturaPorProduto(produto.produto_id)
-      .then((data) => { if (!cancelled) setRows(data) })
-      .catch(() => { if (!cancelled) setRows([]) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+      .then((data) => {
+        if (!cancelled) setRows(data)
+      })
+      .catch(() => {
+        if (!cancelled) setRows([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [produto])
 
   if (!produto) {
@@ -58,7 +66,9 @@ export function NecessidadeDetailsPanel({ produto }: { produto: NecessidadeCompr
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-y-auto flex-1 min-w-0">
       <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50">
-        <h3 className="font-semibold text-slate-900 leading-tight break-words">{produto.produto}</h3>
+        <h3 className="font-semibold text-slate-900 leading-tight break-words">
+          {produto.produto}
+        </h3>
         {produto.produto_codigo && (
           <div className="flex items-center gap-1.5 mt-1">
             <Hash className="w-3.5 h-3.5 text-slate-400" />
@@ -93,8 +103,12 @@ export function NecessidadeDetailsPanel({ produto }: { produto: NecessidadeCompr
             <Table>
               <TableHeader className="bg-slate-100/80">
                 <TableRow>
-                  <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600">Projeto</TableHead>
-                  <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600">Cliente</TableHead>
+                  <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600">
+                    Projeto
+                  </TableHead>
+                  <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600">
+                    Cliente
+                  </TableHead>
                   <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600 text-right">
                     Qtd Venda
                   </TableHead>
