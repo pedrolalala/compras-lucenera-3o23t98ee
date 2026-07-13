@@ -188,7 +188,7 @@ export default function NecessidadeCompra() {
                     </TableRow>
                   ) : visibleRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-40 text-center">
+                      <TableCell colSpan={7} className="h-40 text-center">
                         <div className="flex flex-col items-center text-slate-400">
                           <ShoppingCart className="w-10 h-10 mb-3 text-slate-300" />
                           <p className="text-slate-600 font-medium">
