@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/hooks/use-auth'
 import NecessidadeCompra from './pages/NecessidadeCompra'
 import EstoqueProdutos from './pages/EstoqueProdutos'
+import Cotacoes from './pages/Cotacoes'
 import EmBreve from './pages/EmBreve'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -33,7 +34,7 @@ const App = () => (
                     path="/solicitacoes"
                     element={<EmBreve titulo="Solicitações de Compra" />}
                   />
-                  <Route path="/cotacoes" element={<EmBreve titulo="Cotações" />} />
+                  <Route path="/cotacoes" element={<Cotacoes />} />
                   <Route path="/pedidos" element={<EmBreve titulo="Pedidos de Compra" />} />
                   <Route path="/recebimento" element={<EmBreve titulo="Recebimento" />} />
                 </Route>
