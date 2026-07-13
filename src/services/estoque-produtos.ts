@@ -12,6 +12,8 @@ export interface EstoqueProdutoRow {
   estoque_total: number
   estoque_disponivel: number
   estoque_showroom: number
+  qtd_estoque_itens: number
+  qtd_reservada: number
   custo_total: number
   preco_custo: number | null
   preco_venda: number | null

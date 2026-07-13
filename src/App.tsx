@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/hooks/use-auth'
 import NecessidadeCompra from './pages/NecessidadeCompra'
 import EstoqueProdutos from './pages/EstoqueProdutos'
+import EmBreve from './pages/EmBreve'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import { AppHeader } from './components/AppHeader'
@@ -28,6 +29,10 @@ const App = () => (
                   <Route path="/" element={<NecessidadeCompra />} />
                   <Route path="/necessidade-compra" element={<NecessidadeCompra />} />
                   <Route path="/estoque" element={<EstoqueProdutos />} />
+                  <Route path="/solicitacoes" element={<EmBreve titulo="Solicitações de Compra" />} />
+                  <Route path="/cotacoes" element={<EmBreve titulo="Cotações" />} />
+                  <Route path="/pedidos" element={<EmBreve titulo="Pedidos de Compra" />} />
+                  <Route path="/recebimento" element={<EmBreve titulo="Recebimento" />} />
                 </Route>
                 <Route path="/login" element={<Login />} />
                 <Route path="*" element={<NotFound />} />
