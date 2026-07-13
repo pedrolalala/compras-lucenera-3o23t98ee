@@ -40,7 +40,7 @@ export async function criarPedidoCompra(input: CriarPedidoInput): Promise<CriarP
 }
 
 export async function getFornecedores(search?: string): Promise<Fornecedor[]> {
-  let query = (supabase as any).from('marcas').select('id, nome').eq('ativo', true)
+  let query = (supabase as any).from('contatos').select('id, nome').eq('ativo', true)
   if (search && search.trim()) query = query.ilike('nome', `%${search.trim()}%`)
   const { data, error } = await query.order('nome').limit(50)
   if (error) throw error

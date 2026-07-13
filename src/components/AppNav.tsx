@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
+  Package,
   RefreshCw,
   FileText,
   Quote,
@@ -11,6 +12,7 @@ import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/', label: 'Necessidade', icon: LayoutDashboard },
+  { to: '/estoque', label: 'Estoque', icon: Package },
   { to: '/painel-debora', label: 'Painel Débora', icon: RefreshCw },
   { to: '/solicitacoes', label: 'Solicitações', icon: FileText },
   { to: '/cotacoes', label: 'Cotações', icon: Quote },
