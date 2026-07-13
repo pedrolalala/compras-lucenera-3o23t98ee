@@ -12,13 +12,20 @@ import {
 import { Search, X, RefreshCw, Package } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
-import { getEstoqueProdutos, type EstoqueProdutoRow, type ProgressInfo } from '@/services/estoque-produtos'
+import {
+  getEstoqueProdutos,
+  type EstoqueProdutoRow,
+  type ProgressInfo,
+} from '@/services/estoque-produtos'
 
 const VISIBLE_BATCH = 100
 
 function fmt(n: number | null | undefined, decimals = 3) {
   if (n == null) return '—'
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+  return n.toLocaleString('pt-BR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })
 }
 
 function fmtBRL(n: number | null | undefined) {
@@ -83,12 +90,15 @@ export default function EstoqueProdutos() {
     }
   }
 
-  const totals = useMemo(() => ({
-    produtos: rows.length,
-    estoqueTotal: rows.reduce((s, r) => s + r.estoque_total, 0),
-    custoTotal: rows.reduce((s, r) => s + r.custo_total, 0),
-    semEstoque: rows.filter((r) => r.estoque_disponivel <= 0).length,
-  }), [rows])
+  const totals = useMemo(
+    () => ({
+      produtos: rows.length,
+      estoqueTotal: rows.reduce((s, r) => s + r.estoque_total, 0),
+      custoTotal: rows.reduce((s, r) => s + r.custo_total, 0),
+      semEstoque: rows.filter((r) => r.estoque_disponivel <= 0).length,
+    }),
+    [rows],
+  )
 
   return (
     <div className="flex flex-col space-y-4 w-full pb-20 xl:h-[calc(100vh-130px)] animate-fade-in-up">
@@ -114,10 +124,26 @@ export default function EstoqueProdutos() {
 
       {!loading && rows.length > 0 && (
         <div className="flex flex-wrap gap-3 shrink-0">
-          <SummaryCard label="Total produtos" value={totals.produtos.toLocaleString('pt-BR')} color="slate" />
-          <SummaryCard label="Unidades em estoque" value={fmt(totals.estoqueTotal, 0)} color="blue" />
-          <SummaryCard label="Custo total estoque" value={fmtBRL(totals.custoTotal)} color="emerald" />
-          <SummaryCard label="Sem estoque disponível" value={totals.semEstoque.toLocaleString('pt-BR')} color="red" />
+          <SummaryCard
+            label="Total produtos"
+            value={totals.produtos.toLocaleString('pt-BR')}
+            color="slate"
+          />
+          <SummaryCard
+            label="Unidades em estoque"
+            value={fmt(totals.estoqueTotal, 0)}
+            color="blue"
+          />
+          <SummaryCard
+            label="Custo total estoque"
+            value={fmtBRL(totals.custoTotal)}
+            color="emerald"
+          />
+          <SummaryCard
+            label="Sem estoque disponível"
+            value={totals.semEstoque.toLocaleString('pt-BR')}
+            color="red"
+          />
         </div>
       )}
 
@@ -136,7 +162,10 @@ export default function EstoqueProdutos() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setSearchInput(''); setDebouncedSearch('') }}
+              onClick={() => {
+                setSearchInput('')
+                setDebouncedSearch('')
+              }}
               className="shrink-0 text-slate-500 hover:text-slate-700 h-9"
             >
               <X className="w-4 h-4 mr-1" />
@@ -157,16 +186,36 @@ export default function EstoqueProdutos() {
           <Table className="w-full">
             <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
               <TableRow className="h-11">
-                <TableHead className="pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">Cód.</TableHead>
-                <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">Produto</TableHead>
-                <TableHead className="hidden md:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[12%]">Marca</TableHead>
-                <TableHead className="hidden xl:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">Categoria</TableHead>
-                <TableHead className="hidden sm:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[6%] text-center">Un.</TableHead>
-                <TableHead className="text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Disponível</TableHead>
-                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Showroom</TableHead>
-                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Total</TableHead>
-                <TableHead className="hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">Custo unit.</TableHead>
-                <TableHead className="pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">Preço venda</TableHead>
+                <TableHead className="pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">
+                  Cód.
+                </TableHead>
+                <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                  Produto
+                </TableHead>
+                <TableHead className="hidden md:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[12%]">
+                  Marca
+                </TableHead>
+                <TableHead className="hidden xl:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">
+                  Categoria
+                </TableHead>
+                <TableHead className="hidden sm:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[6%] text-center">
+                  Un.
+                </TableHead>
+                <TableHead className="text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">
+                  Disponível
+                </TableHead>
+                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">
+                  Showroom
+                </TableHead>
+                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">
+                  Total
+                </TableHead>
+                <TableHead className="hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">
+                  Custo unit.
+                </TableHead>
+                <TableHead className="pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">
+                  Preço venda
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -187,11 +236,11 @@ export default function EstoqueProdutos() {
                     <div className="flex flex-col items-center text-slate-400">
                       <Package className="w-10 h-10 mb-3 text-slate-300" />
                       <p className="text-slate-600 font-medium">
-                        {searchInput ? 'Nenhum produto encontrado' : 'Nenhum produto ativo no momento'}
+                        {searchInput
+                          ? 'Nenhum produto encontrado'
+                          : 'Nenhum produto ativo no momento'}
                       </p>
-                      {searchInput && (
-                        <p className="text-sm mt-1">Tente ajustar a busca.</p>
-                      )}
+                      {searchInput && <p className="text-sm mt-1">Tente ajustar a busca.</p>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -210,9 +259,7 @@ export default function EstoqueProdutos() {
                       <p className="text-sm font-medium text-slate-900 leading-snug line-clamp-2">
                         {r.produto}
                       </p>
-                      {r.sku && (
-                        <p className="text-xs text-slate-400 mt-0.5">SKU: {r.sku}</p>
-                      )}
+                      {r.sku && <p className="text-xs text-slate-400 mt-0.5">SKU: {r.sku}</p>}
                     </TableCell>
                     <TableCell className="hidden md:table-cell align-middle py-2">
                       <span className="text-sm text-slate-600">{r.marca || '—'}</span>
@@ -224,21 +271,31 @@ export default function EstoqueProdutos() {
                       <span className="text-xs text-slate-500">{r.unidade || 'UN'}</span>
                     </TableCell>
                     <TableCell className="text-right align-middle py-2">
-                      <span className={cn('text-sm tabular-nums', estoqueColor(r.estoque_disponivel))}>
+                      <span
+                        className={cn('text-sm tabular-nums', estoqueColor(r.estoque_disponivel))}
+                      >
                         {fmt(r.estoque_disponivel)}
                       </span>
                     </TableCell>
                     <TableCell className="hidden lg:table-cell text-right align-middle py-2">
-                      <span className="text-sm text-slate-600 tabular-nums">{fmt(r.estoque_showroom, 0)}</span>
+                      <span className="text-sm text-slate-600 tabular-nums">
+                        {fmt(r.estoque_showroom, 0)}
+                      </span>
                     </TableCell>
                     <TableCell className="hidden lg:table-cell text-right align-middle py-2">
-                      <span className="text-sm text-slate-700 tabular-nums">{fmt(r.estoque_total)}</span>
+                      <span className="text-sm text-slate-700 tabular-nums">
+                        {fmt(r.estoque_total)}
+                      </span>
                     </TableCell>
                     <TableCell className="hidden xl:table-cell text-right align-middle py-2">
-                      <span className="text-sm text-slate-600 tabular-nums">{fmtBRL(r.preco_custo)}</span>
+                      <span className="text-sm text-slate-600 tabular-nums">
+                        {fmtBRL(r.preco_custo)}
+                      </span>
                     </TableCell>
                     <TableCell className="pr-4 sm:pr-6 text-right align-middle py-2">
-                      <span className="text-sm font-medium text-slate-800 tabular-nums">{fmtBRL(r.preco_venda)}</span>
+                      <span className="text-sm font-medium text-slate-800 tabular-nums">
+                        {fmtBRL(r.preco_venda)}
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))
