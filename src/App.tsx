@@ -11,7 +11,6 @@ import EmBreve from './pages/EmBreve'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import { AppHeader } from './components/AppHeader'
-import { AppNav } from './components/AppNav'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 const App = () => (
@@ -23,7 +22,6 @@ const App = () => (
           <Sonner />
           <div className="min-h-screen bg-slate-50">
             <AppHeader />
-            <AppNav />
             <main className="w-full max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6">
               <Routes>
                 <Route element={<ProtectedRoute />}>
