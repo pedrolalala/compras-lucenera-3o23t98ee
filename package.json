@@ -2,7 +2,7 @@
   "name": "compras-lucenera",
   "description": "Sistema de Necessidade de Compra — Lucenera",
   "private": true,
-  "version": "0.0.29",
+  "version": "0.0.30",
   "type": "module",
   "scripts": {
     "start": "vite dev",
