@@ -9,6 +9,7 @@ export interface NecessidadeCompraRow {
   necessidade_compra: number
   qtd_disponivel: number
   projetos_com_entrega_futura: number
+  preco_custo: number | null
 }
 
 export interface ProgressInfo {
