@@ -93,9 +93,9 @@ export default function EstoqueProdutos() {
   const totals = useMemo(
     () => ({
       produtos: rows.length,
-      estoqueTotal: rows.reduce((s, r) => s + r.estoque_total, 0),
+      estoqueTotal: rows.reduce((s, r) => s + r.qtd_estoque_itens, 0),
       custoTotal: rows.reduce((s, r) => s + r.custo_total, 0),
-      semEstoque: rows.filter((r) => r.estoque_disponivel <= 0).length,
+      semEstoque: rows.filter((r) => r.qtd_estoque_itens <= 0).length,
     }),
     [rows],
   )
