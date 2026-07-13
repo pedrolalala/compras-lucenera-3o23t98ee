@@ -1,12 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  Package,
-  FileText,
-  Quote,
-  ShoppingCart,
-  PackageCheck,
-} from 'lucide-react'
+import { LayoutDashboard, Package, FileText, Quote, ShoppingCart, PackageCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [

@@ -29,7 +29,10 @@ const App = () => (
                   <Route path="/" element={<NecessidadeCompra />} />
                   <Route path="/necessidade-compra" element={<NecessidadeCompra />} />
                   <Route path="/estoque" element={<EstoqueProdutos />} />
-                  <Route path="/solicitacoes" element={<EmBreve titulo="Solicitações de Compra" />} />
+                  <Route
+                    path="/solicitacoes"
+                    element={<EmBreve titulo="Solicitações de Compra" />}
+                  />
                   <Route path="/cotacoes" element={<EmBreve titulo="Cotações" />} />
                   <Route path="/pedidos" element={<EmBreve titulo="Pedidos de Compra" />} />
                   <Route path="/recebimento" element={<EmBreve titulo="Recebimento" />} />

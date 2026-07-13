@@ -1,20 +1,20 @@
 {
   "_versions": {
-    "salvar-projeto": 53,
-    "update-project": 44,
-    "chat-consulta": 41,
-    "chat-agent": 38,
-    "welcome-email": 39,
-    "generate-report": 60,
-    "sync-sharepoint": 37,
-    "sync-teams": 37,
-    "enviar-confirmacao-email": 37,
-    "parse-budget-pdf": 38,
-    "process-budget-pdf": 36,
-    "process-remittance": 31,
-    "process-billing-automation": 9,
-    "generate-cross-system-code": 6,
-    "exchange-cross-system-code": 6,
-    "sync-fechamentos-automatica": 3
+    "salvar-projeto": 54,
+    "update-project": 45,
+    "chat-consulta": 42,
+    "chat-agent": 39,
+    "welcome-email": 40,
+    "generate-report": 61,
+    "sync-sharepoint": 38,
+    "sync-teams": 38,
+    "enviar-confirmacao-email": 38,
+    "parse-budget-pdf": 39,
+    "process-budget-pdf": 37,
+    "process-remittance": 32,
+    "process-billing-automation": 10,
+    "generate-cross-system-code": 7,
+    "exchange-cross-system-code": 7,
+    "sync-fechamentos-automatica": 4
   }
 }

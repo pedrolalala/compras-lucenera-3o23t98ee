@@ -15,7 +15,8 @@ export default function EmBreve({ titulo, descricao }: Props) {
         <div>
           <h2 className="text-xl font-semibold text-slate-800">{titulo}</h2>
           <p className="text-sm text-slate-500 mt-1">
-            {descricao ?? 'Esta funcionalidade está em desenvolvimento e estará disponível em breve.'}
+            {descricao ??
+              'Esta funcionalidade está em desenvolvimento e estará disponível em breve.'}
           </p>
         </div>
       </div>
