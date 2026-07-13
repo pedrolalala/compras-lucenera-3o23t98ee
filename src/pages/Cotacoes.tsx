@@ -12,7 +12,11 @@ import {
 import { Search, X, RefreshCw, AlertTriangle, Pencil, Check, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
-import { getNecessidadeCompra, type NecessidadeCompraRow, type ProgressInfo } from '@/services/necessidade-compra'
+import {
+  getNecessidadeCompra,
+  type NecessidadeCompraRow,
+  type ProgressInfo,
+} from '@/services/necessidade-compra'
 import { atualizarPrecoCusto } from '@/services/cotacoes'
 
 const VISIBLE_BATCH = 100
@@ -65,8 +69,12 @@ export default function Cotacoes() {
     }
   }, [debouncedSearch, toast])
 
-  useEffect(() => { loadData() }, [loadData])
-  useEffect(() => { setVisibleCount(VISIBLE_BATCH) }, [debouncedSearch])
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+  useEffect(() => {
+    setVisibleCount(VISIBLE_BATCH)
+  }, [debouncedSearch])
 
   useEffect(() => {
     if (editando) inputRef.current?.focus()
@@ -84,24 +92,34 @@ export default function Cotacoes() {
     if (!editando || editando.produtoId !== produtoId) return
     const preco = parseFloat(editando.valor.replace(',', '.'))
     if (isNaN(preco) || preco < 0) {
-      toast({ title: 'Valor inválido', description: 'Digite um preço >= 0.', variant: 'destructive' })
+      toast({
+        title: 'Valor inválido',
+        description: 'Digite um preço >= 0.',
+        variant: 'destructive',
+      })
       return
     }
-    setEditando((e) => e ? { ...e, saving: true } : null)
+    setEditando((e) => (e ? { ...e, saving: true } : null))
     try {
       await atualizarPrecoCusto(produtoId, preco)
       setRows((prev) =>
-        prev.map((r) => r.produto_id === produtoId ? { ...r, preco_custo: preco } : r),
+        prev.map((r) => (r.produto_id === produtoId ? { ...r, preco_custo: preco } : r)),
       )
       toast({ title: 'Preço atualizado', description: `R$ ${preco.toFixed(2).replace('.', ',')}` })
     } catch (err: any) {
-      toast({ title: 'Erro ao salvar', description: err?.message ?? 'Tente novamente.', variant: 'destructive' })
+      toast({
+        title: 'Erro ao salvar',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
     } finally {
       setEditando(null)
     }
   }
 
-  function cancelarEdicao() { setEditando(null) }
+  function cancelarEdicao() {
+    setEditando(null)
+  }
 
   const visibleRows = rows.slice(0, visibleCount)
 
@@ -123,14 +141,17 @@ export default function Cotacoes() {
     <div className="flex flex-col space-y-4 w-full pb-20 xl:h-[calc(100vh-130px)] animate-fade-in-up">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
-            Cotações
-          </h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">Cotações</h1>
           <p className="text-slate-500 text-sm mt-1">
             Produtos com déficit de estoque — edite o preço de compra para estimar o custo total.
           </p>
         </div>
-        <Button variant="outline" onClick={loadData} className="shadow-sm w-full sm:w-auto" disabled={loading}>
+        <Button
+          variant="outline"
+          onClick={loadData}
+          className="shadow-sm w-full sm:w-auto"
+          disabled={loading}
+        >
           <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
           Atualizar
         </Button>
@@ -138,10 +159,26 @@ export default function Cotacoes() {
 
       {!loading && rows.length > 0 && (
         <div className="flex flex-wrap gap-3 shrink-0">
-          <SCard label="Produtos com déficit" value={totals.produtos.toLocaleString('pt-BR')} color="amber" />
-          <SCard label="Total unidades a comprar" value={fmtQtd(totals.totalNecessidade)} color="red" />
-          <SCard label="Custo estimado total" value={fmtBRL(totals.custoEstimado)} color="emerald" />
-          <SCard label="Sem preço cadastrado" value={totals.semPreco.toLocaleString('pt-BR')} color="slate" />
+          <SCard
+            label="Produtos com déficit"
+            value={totals.produtos.toLocaleString('pt-BR')}
+            color="amber"
+          />
+          <SCard
+            label="Total unidades a comprar"
+            value={fmtQtd(totals.totalNecessidade)}
+            color="red"
+          />
+          <SCard
+            label="Custo estimado total"
+            value={fmtBRL(totals.custoEstimado)}
+            color="emerald"
+          />
+          <SCard
+            label="Sem preço cadastrado"
+            value={totals.semPreco.toLocaleString('pt-BR')}
+            color="slate"
+          />
         </div>
       )}
 
@@ -157,8 +194,15 @@ export default function Cotacoes() {
             />
           </div>
           {searchInput && (
-            <Button variant="ghost" size="sm" onClick={() => { setSearchInput(''); setDebouncedSearch('') }}
-              className="shrink-0 text-slate-500 hover:text-slate-700 h-9">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchInput('')
+                setDebouncedSearch('')
+              }}
+              className="shrink-0 text-slate-500 hover:text-slate-700 h-9"
+            >
               <X className="w-4 h-4 mr-1" /> Limpar
             </Button>
           )}
@@ -166,7 +210,9 @@ export default function Cotacoes() {
 
         <div className="px-4 py-2 text-xs text-slate-500 border-b border-slate-100 shrink-0">
           {loading
-            ? progress ? `Carregando... ${progress.loaded} de ${progress.total}` : 'Carregando...'
+            ? progress
+              ? `Carregando... ${progress.loaded} de ${progress.total}`
+              : 'Carregando...'
             : `${visibleRows.length} de ${rows.length} produto(s) com déficit`}
         </div>
 
@@ -174,10 +220,18 @@ export default function Cotacoes() {
           <Table className="w-full table-fixed">
             <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
               <TableRow className="h-11">
-                <TableHead className="pl-4 sm:pl-6 w-[9%] text-slate-600 font-semibold text-xs uppercase tracking-wide">Cód.</TableHead>
-                <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">Produto</TableHead>
-                <TableHead className="hidden lg:table-cell w-[10%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">Qtd. Física</TableHead>
-                <TableHead className="hidden md:table-cell w-[10%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">Reservada</TableHead>
+                <TableHead className="pl-4 sm:pl-6 w-[9%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                  Cód.
+                </TableHead>
+                <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                  Produto
+                </TableHead>
+                <TableHead className="hidden lg:table-cell w-[10%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                  Qtd. Física
+                </TableHead>
+                <TableHead className="hidden md:table-cell w-[10%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                  Reservada
+                </TableHead>
                 <TableHead className="w-[12%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   <span className="text-red-600">Déficit</span>
                 </TableHead>
@@ -207,7 +261,9 @@ export default function Cotacoes() {
                     <div className="flex flex-col items-center text-slate-400">
                       <AlertTriangle className="w-10 h-10 mb-3 text-slate-300" />
                       <p className="text-slate-600 font-medium">
-                        {searchInput ? 'Nenhum produto encontrado' : 'Nenhum déficit de estoque no momento'}
+                        {searchInput
+                          ? 'Nenhum produto encontrado'
+                          : 'Nenhum déficit de estoque no momento'}
                       </p>
                     </div>
                   </TableCell>
@@ -216,9 +272,7 @@ export default function Cotacoes() {
                 visibleRows.map((r, idx) => {
                   const isEditing = editando?.produtoId === r.produto_id
                   const custoEstimado =
-                    r.preco_custo && r.preco_custo > 0
-                      ? r.necessidade_compra * r.preco_custo
-                      : null
+                    r.preco_custo && r.preco_custo > 0 ? r.necessidade_compra * r.preco_custo : null
 
                   return (
                     <TableRow
@@ -236,10 +290,14 @@ export default function Cotacoes() {
                         </p>
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-right align-middle py-2">
-                        <span className="text-sm text-slate-500 tabular-nums">{fmtQtd(r.qtd_fisica)}</span>
+                        <span className="text-sm text-slate-500 tabular-nums">
+                          {fmtQtd(r.qtd_fisica)}
+                        </span>
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-right align-middle py-2">
-                        <span className="text-sm text-amber-700 tabular-nums">{fmtQtd(r.qtd_comprometida)}</span>
+                        <span className="text-sm text-amber-700 tabular-nums">
+                          {fmtQtd(r.qtd_comprometida)}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right align-middle py-2">
                         <span className="inline-flex items-center gap-1 justify-end">
@@ -251,7 +309,10 @@ export default function Cotacoes() {
                       </TableCell>
                       <TableCell
                         className="text-right align-middle py-2"
-                        onClick={(e) => { e.stopPropagation(); if (!isEditing) iniciarEdicao(r) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (!isEditing) iniciarEdicao(r)
+                        }}
                       >
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-1">
@@ -262,7 +323,9 @@ export default function Cotacoes() {
                               step="0.01"
                               value={editando!.valor}
                               onChange={(e) =>
-                                setEditando((prev) => prev ? { ...prev, valor: e.target.value } : null)
+                                setEditando((prev) =>
+                                  prev ? { ...prev, valor: e.target.value } : null,
+                                )
                               }
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') salvarPreco(r.produto_id)
@@ -276,7 +339,10 @@ export default function Cotacoes() {
                               <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 shrink-0" />
                             ) : (
                               <button
-                                onMouseDown={(e) => { e.preventDefault(); salvarPreco(r.produto_id) }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  salvarPreco(r.produto_id)
+                                }}
                                 className="text-emerald-600 hover:text-emerald-700"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -285,10 +351,12 @@ export default function Cotacoes() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-end gap-1.5 group cursor-pointer">
-                            <span className={cn(
-                              'text-sm tabular-nums',
-                              r.preco_custo ? 'text-slate-700' : 'text-slate-400 italic',
-                            )}>
+                            <span
+                              className={cn(
+                                'text-sm tabular-nums',
+                                r.preco_custo ? 'text-slate-700' : 'text-slate-400 italic',
+                              )}
+                            >
                               {r.preco_custo ? fmtBRL(r.preco_custo) : 'Clique p/ editar'}
                             </span>
                             <Pencil className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -296,10 +364,12 @@ export default function Cotacoes() {
                         )}
                       </TableCell>
                       <TableCell className="pr-4 sm:pr-6 text-right align-middle py-2">
-                        <span className={cn(
-                          'text-sm tabular-nums',
-                          custoEstimado ? 'font-semibold text-emerald-700' : 'text-slate-300',
-                        )}>
+                        <span
+                          className={cn(
+                            'text-sm tabular-nums',
+                            custoEstimado ? 'font-semibold text-emerald-700' : 'text-slate-300',
+                          )}
+                        >
                           {custoEstimado ? fmtBRL(custoEstimado) : '—'}
                         </span>
                       </TableCell>
