@@ -159,20 +159,22 @@ export default function EstoqueProdutos() {
               <TableRow className="h-11">
                 <TableHead className="pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">Cód.</TableHead>
                 <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">Produto</TableHead>
-                <TableHead className="hidden md:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[12%]">Marca</TableHead>
-                <TableHead className="hidden xl:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">Categoria</TableHead>
-                <TableHead className="hidden sm:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[6%] text-center">Un.</TableHead>
-                <TableHead className="text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Disponível</TableHead>
-                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Showroom</TableHead>
-                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Total</TableHead>
-                <TableHead className="hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">Custo unit.</TableHead>
-                <TableHead className="pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[10%]">Preço venda</TableHead>
+                <TableHead className="hidden md:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[11%]">Marca</TableHead>
+                <TableHead className="hidden xl:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Categoria</TableHead>
+                <TableHead className="hidden sm:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide w-[5%] text-center">Un.</TableHead>
+                <TableHead className="text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Qtd. Estoque</TableHead>
+                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">Reservada</TableHead>
+                <TableHead className="hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">Disponível</TableHead>
+                <TableHead className="hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">Showroom</TableHead>
+                <TableHead className="hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[8%]">Total</TableHead>
+                <TableHead className="hidden 2xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Custo unit.</TableHead>
+                <TableHead className="pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide w-[9%]">Preço venda</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-32 text-center">
+                  <TableCell colSpan={12} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                       <span className="text-xs text-slate-500">
@@ -183,7 +185,7 @@ export default function EstoqueProdutos() {
                 </TableRow>
               ) : visibleRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-40 text-center">
+                  <TableCell colSpan={12} className="h-40 text-center">
                     <div className="flex flex-col items-center text-slate-400">
                       <Package className="w-10 h-10 mb-3 text-slate-300" />
                       <p className="text-slate-600 font-medium">
@@ -224,17 +226,25 @@ export default function EstoqueProdutos() {
                       <span className="text-xs text-slate-500">{r.unidade || 'UN'}</span>
                     </TableCell>
                     <TableCell className="text-right align-middle py-2">
+                      <span className={cn('text-sm tabular-nums', estoqueColor(r.qtd_estoque_itens))}>
+                        {fmt(r.qtd_estoque_itens)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-right align-middle py-2">
+                      <span className="text-sm text-amber-700 tabular-nums">{fmt(r.qtd_reservada)}</span>
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-right align-middle py-2">
                       <span className={cn('text-sm tabular-nums', estoqueColor(r.estoque_disponivel))}>
                         {fmt(r.estoque_disponivel)}
                       </span>
                     </TableCell>
-                    <TableCell className="hidden lg:table-cell text-right align-middle py-2">
+                    <TableCell className="hidden xl:table-cell text-right align-middle py-2">
                       <span className="text-sm text-slate-600 tabular-nums">{fmt(r.estoque_showroom, 0)}</span>
                     </TableCell>
-                    <TableCell className="hidden lg:table-cell text-right align-middle py-2">
+                    <TableCell className="hidden xl:table-cell text-right align-middle py-2">
                       <span className="text-sm text-slate-700 tabular-nums">{fmt(r.estoque_total)}</span>
                     </TableCell>
-                    <TableCell className="hidden xl:table-cell text-right align-middle py-2">
+                    <TableCell className="hidden 2xl:table-cell text-right align-middle py-2">
                       <span className="text-sm text-slate-600 tabular-nums">{fmtBRL(r.preco_custo)}</span>
                     </TableCell>
                     <TableCell className="pr-4 sm:pr-6 text-right align-middle py-2">
