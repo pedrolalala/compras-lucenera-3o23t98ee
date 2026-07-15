@@ -23,6 +23,24 @@ function formatDate(v: string | null | undefined) {
   return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR')
 }
 
+function formatDiasEmAberto(dias: number | null): string {
+  if (dias === null || dias === undefined) return '-'
+  if (dias === 0) return 'hoje'
+  if (dias === 1) return '1 dia'
+  if (dias < 14) return `${dias} dias`
+  const semanas = Math.floor(dias / 7)
+  if (dias < 30) return `${semanas} semana${semanas > 1 ? 's' : ''}`
+  const meses = Math.floor(dias / 30)
+  return `${meses} ${meses > 1 ? 'meses' : 'mês'}`
+}
+
+function diasEmAbertoColor(dias: number | null): string {
+  if (dias === null || dias === undefined) return 'bg-slate-100 text-slate-600'
+  if (dias >= 21) return 'bg-red-100 text-red-700'
+  if (dias >= 7) return 'bg-amber-100 text-amber-700'
+  return 'bg-slate-100 text-slate-600'
+}
+
 export function NecessidadeDetailsPanel({ produto }: { produto: NecessidadeCompraRow | null }) {
   const [rows, setRows] = useState<EntregaFuturaRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -115,6 +133,9 @@ export function NecessidadeDetailsPanel({ produto }: { produto: NecessidadeCompr
                   <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600 text-right">
                     Entrega Futura
                   </TableHead>
+                  <TableHead className="h-9 py-2 px-2 text-[11px] text-slate-600 text-right">
+                    Em Aberto
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -139,12 +160,23 @@ export function NecessidadeDetailsPanel({ produto }: { produto: NecessidadeCompr
                         {r.q_entrega_futura}
                       </span>
                     </TableCell>
+                    <TableCell className="py-2 px-2 text-xs text-right">
+                      <span
+                        className={cn(
+                          'font-semibold px-1.5 py-0.5 rounded-full',
+                          diasEmAbertoColor(r.dias_em_aberto),
+                        )}
+                        title={r.aberto_desde ? `Desde ${formatDate(r.aberto_desde)}` : undefined}
+                      >
+                        {formatDiasEmAberto(r.dias_em_aberto)}
+                      </span>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
               <TableFooter className="bg-slate-100/80 border-t border-slate-200">
                 <TableRow className="h-10">
-                  <TableCell colSpan={3} className="py-2 px-2 text-xs font-bold text-slate-700">
+                  <TableCell colSpan={4} className="py-2 px-2 text-xs font-bold text-slate-700">
                     Total Entrega Futura
                   </TableCell>
                   <TableCell className="py-2 px-2 text-right">
