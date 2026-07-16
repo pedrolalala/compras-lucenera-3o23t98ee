@@ -145,9 +145,7 @@ export function ModalPedidoLote({
                 <TableRow>
                   <TableHead className="text-xs">Produto</TableHead>
                   <TableHead className="text-xs w-[140px] text-right">Quantidade</TableHead>
-                  <TableHead className="text-xs w-[160px] text-right">
-                    Custo unitário (R$)
-                  </TableHead>
+                  <TableHead className="text-xs w-[160px] text-right">Custo unitário (R$)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -156,7 +154,9 @@ export function ModalPedidoLote({
                     <TableCell className="text-sm">
                       <p className="font-medium text-slate-800 line-clamp-1">{l.produto}</p>
                       {l.produto_codigo && (
-                        <span className="font-mono text-xs text-slate-400">{l.produto_codigo}</span>
+                        <span className="font-mono text-xs text-slate-400">
+                          {l.produto_codigo}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
@@ -166,7 +166,9 @@ export function ModalPedidoLote({
                         step="0.001"
                         className="h-9 text-sm text-right"
                         value={l.quantidade}
-                        onChange={(e) => atualizarLinha(l.produto_id, 'quantidade', e.target.value)}
+                        onChange={(e) =>
+                          atualizarLinha(l.produto_id, 'quantidade', e.target.value)
+                        }
                       />
                     </TableCell>
                     <TableCell className="text-right">
