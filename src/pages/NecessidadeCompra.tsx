@@ -1,6 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -9,11 +17,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, ShoppingCart, X, RefreshCw, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  Search,
+  ShoppingCart,
+  X,
+  RefreshCw,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  PackageCheck,
+} from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
 import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
+import { ModalPedidoLote } from '@/components/compra/ModalPedidoLote'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
 import {
   getNecessidadeCompra,
@@ -37,6 +55,11 @@ export default function NecessidadeCompra() {
   const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
 
+  // SPEC-030 Parte 2: filtro por marca + seleção múltipla para Pedido em Lote
+  const [selectedMarca, setSelectedMarca] = useState<string>('all')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [loteModalOpen, setLoteModalOpen] = useState(false)
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
     return () => clearTimeout(timer)
@@ -50,6 +73,7 @@ export default function NecessidadeCompra() {
         setProgress(info)
       })
       setRows(data)
+      setSelectedIds(new Set())
     } catch {
       toast({
         title: 'Erro',
@@ -68,23 +92,76 @@ export default function NecessidadeCompra() {
 
   useEffect(() => {
     setVisibleCount(VISIBLE_BATCH)
-  }, [debouncedSearch])
+  }, [debouncedSearch, selectedMarca])
 
   const selectedProduto = useMemo(
     () => rows.find((r) => r.produto_id === selectedProdutoId) ?? null,
     [rows, selectedProdutoId],
   )
 
-  const visibleRows = rows.slice(0, visibleCount)
+  // SPEC-030 Parte 2: marcas distintas presentes no resultado (derivado de
+  // rows, sem query separada), para popular o filtro por marca.
+  const marcasDisponiveis = useMemo(() => {
+    const map = new Map<string, string>()
+    rows.forEach((r) => {
+      if (r.marca_id && r.marca_nome) map.set(r.marca_id, r.marca_nome)
+    })
+    return Array.from(map.entries())
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [rows])
+
+  const filteredRows = useMemo(
+    () => (selectedMarca === 'all' ? rows : rows.filter((r) => r.marca_id === selectedMarca)),
+    [rows, selectedMarca],
+  )
+
+  const visibleRows = filteredRows.slice(0, visibleCount)
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 300 && visibleCount < rows.length) {
-      setVisibleCount((prev) => Math.min(prev + VISIBLE_BATCH, rows.length))
+    if (
+      el.scrollHeight - el.scrollTop - el.clientHeight < 300 &&
+      visibleCount < filteredRows.length
+    ) {
+      setVisibleCount((prev) => Math.min(prev + VISIBLE_BATCH, filteredRows.length))
     }
   }
 
   const totalNecessidade = useMemo(() => rows.reduce((s, r) => s + r.necessidade_compra, 0), [rows])
+
+  // Fornecedor comum aos itens já selecionados (todas as linhas marcadas
+  // resolvem para o mesmo fornecedor_id, por construção de toggleSelect).
+  const selectedFornecedorId = useMemo(() => {
+    if (selectedIds.size === 0) return null
+    const first = rows.find((r) => selectedIds.has(r.produto_id))
+    return first?.fornecedor_id ?? null
+  }, [selectedIds, rows])
+
+  const selectedItens = useMemo(
+    () => rows.filter((r) => selectedIds.has(r.produto_id)),
+    [rows, selectedIds],
+  )
+
+  function toggleSelect(row: NecessidadeCompraRow) {
+    if (!row.fornecedor_id) return
+    const isSelected = selectedIds.has(row.produto_id)
+    if (!isSelected && selectedFornecedorId && selectedFornecedorId !== row.fornecedor_id) {
+      toast({
+        title: 'Fornecedor diferente',
+        description:
+          'Este item resolve para um fornecedor diferente dos já selecionados. Desmarque os itens do outro fornecedor antes de continuar, ou feche o pedido em lote atual primeiro.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(row.produto_id)) next.delete(row.produto_id)
+      else next.add(row.produto_id)
+      return next
+    })
+  }
 
   function toggleExpand(e: React.MouseEvent, produtoId: string) {
     e.stopPropagation()
@@ -102,15 +179,26 @@ export default function NecessidadeCompra() {
             Produtos com entrega futura pendente — déficit de estoque por item vendido/aprovado.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={loadData}
-          className="shadow-sm w-full sm:w-auto"
-          disabled={loading}
-        >
-          <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
-          Atualizar
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          {selectedIds.size > 0 && (
+            <Button
+              onClick={() => setLoteModalOpen(true)}
+              className="shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <PackageCheck className="w-4 h-4 mr-2" />
+              Fechar pedido em lote ({selectedIds.size})
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={loadData}
+            className="shadow-sm w-full sm:w-auto"
+            disabled={loading}
+          >
+            <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {!loading && rows.length > 0 && (
@@ -146,6 +234,19 @@ export default function NecessidadeCompra() {
                 Limpar
               </Button>
             )}
+            <Select value={selectedMarca} onValueChange={setSelectedMarca}>
+              <SelectTrigger className="w-full sm:w-[220px] h-9 bg-slate-50 border-slate-200 text-sm">
+                <SelectValue placeholder="Todas as marcas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as marcas</SelectItem>
+                {marcasDisponiveis.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-hidden flex flex-col min-h-0">
@@ -154,17 +255,23 @@ export default function NecessidadeCompra() {
                 ? progress
                   ? `Carregando... ${progress.loaded} de ${progress.total} produtos`
                   : 'Carregando...'
-                : `${visibleRows.length} de ${rows.length} produto(s) com necessidade`}
+                : `${visibleRows.length} de ${filteredRows.length} produto(s) com necessidade`}
             </div>
             <div className="overflow-auto flex-1" onScroll={handleScroll}>
               <Table className="w-full table-fixed">
                 <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                   <TableRow className="h-11">
-                    <TableHead className="w-[18%] pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[4%] pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      <span className="sr-only">Selecionar</span>
+                    </TableHead>
+                    <TableHead className="w-[16%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Código
                     </TableHead>
                     <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Produto
+                    </TableHead>
+                    <TableHead className="w-[12%] hidden md:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Marca
                     </TableHead>
                     <TableHead className="w-[11%] hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Física
@@ -186,7 +293,7 @@ export default function NecessidadeCompra() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-32 text-center">
+                      <TableCell colSpan={9} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2">
                           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                           <span className="text-xs text-slate-500">Carregando...</span>
@@ -195,7 +302,7 @@ export default function NecessidadeCompra() {
                     </TableRow>
                   ) : visibleRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-40 text-center">
+                      <TableCell colSpan={9} className="h-40 text-center">
                         <div className="flex flex-col items-center text-slate-400">
                           <ShoppingCart className="w-10 h-10 mb-3 text-slate-300" />
                           <p className="text-slate-600 font-medium">
@@ -216,7 +323,7 @@ export default function NecessidadeCompra() {
                       const isExpanded = expandedId === r.produto_id
                       const detailRow = isExpanded ? (
                         <TableRow key={`${r.produto_id}-detalhe`} className="hover:bg-transparent">
-                          <TableCell colSpan={7} className="p-0">
+                          <TableCell colSpan={9} className="p-0">
                             <NecessidadeCompraDetalhe produtoId={r.produto_id} />
                           </TableCell>
                         </TableRow>
@@ -232,7 +339,22 @@ export default function NecessidadeCompra() {
                               : 'hover:bg-slate-50/80',
                           )}
                         >
-                          <TableCell className="pl-4 sm:pl-6 align-middle py-2">
+                          <TableCell
+                            className="pl-4 sm:pl-6 align-middle py-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Checkbox
+                              checked={selectedIds.has(r.produto_id)}
+                              disabled={!r.fornecedor_id}
+                              onCheckedChange={() => toggleSelect(r)}
+                              title={
+                                r.fornecedor_id
+                                  ? undefined
+                                  : 'Sem fornecedor resolvido (produto/marca sem fornecedor cadastrado) — fora do Pedido em Lote'
+                              }
+                            />
+                          </TableCell>
+                          <TableCell className="align-middle py-2">
                             <span className="inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary font-mono text-xs font-semibold whitespace-nowrap">
                               {r.produto_codigo || '-'}
                             </span>
@@ -241,6 +363,11 @@ export default function NecessidadeCompra() {
                             <p className="line-clamp-2 text-sm font-medium text-slate-900 leading-snug">
                               {r.produto}
                             </p>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell align-middle py-2">
+                            <span className="text-sm text-slate-600 line-clamp-1">
+                              {r.marca_nome || '-'}
+                            </span>
                           </TableCell>
                           <TableCell className="hidden lg:table-cell text-right align-middle py-2">
                             <span className="text-sm text-slate-600">{r.qtd_fisica}</span>
@@ -308,9 +435,9 @@ export default function NecessidadeCompra() {
                   )}
                 </TableBody>
               </Table>
-              {visibleCount < rows.length && !loading && (
+              {visibleCount < filteredRows.length && !loading && (
                 <div className="py-3 text-center text-xs text-slate-400">
-                  Role para carregar mais... ({rows.length - visibleCount} restantes)
+                  Role para carregar mais... ({filteredRows.length - visibleCount} restantes)
                 </div>
               )}
             </div>
@@ -328,6 +455,18 @@ export default function NecessidadeCompra() {
         produto={produtoParaCompra}
         onSuccess={() => {
           setModalOpen(false)
+          loadData()
+        }}
+      />
+
+      <ModalPedidoLote
+        open={loteModalOpen}
+        onOpenChange={setLoteModalOpen}
+        itens={selectedItens}
+        fornecedorId={selectedFornecedorId ?? ''}
+        fornecedorNome={selectedItens[0]?.fornecedor_nome ?? ''}
+        onSuccess={() => {
+          setLoteModalOpen(false)
           loadData()
         }}
       />
