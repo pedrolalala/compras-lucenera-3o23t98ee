@@ -40,6 +40,8 @@ export interface EntregaFuturaRow {
   q_reserva: number
   q_transferida_saida: number
   atualizado_em: string | null
+  aberto_desde: string | null
+  dias_em_aberto: number | null
 }
 
 const BATCH_SIZE = 500
@@ -99,7 +101,7 @@ export async function getEntregaFuturaPorProduto(produtoId: string): Promise<Ent
     .from('vw_entrega_futura_projeto_item')
     .select('*')
     .eq('produto_id', produtoId)
-    .order('atualizado_em', { ascending: false })
+    .order('dias_em_aberto', { ascending: false })
 
   if (error) throw error
 

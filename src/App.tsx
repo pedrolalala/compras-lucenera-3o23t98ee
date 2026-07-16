@@ -11,6 +11,7 @@ import EmBreve from './pages/EmBreve'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import { AppHeader } from './components/AppHeader'
+import { AppNav } from './components/AppNav'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 const AppShell = () => {
@@ -28,16 +29,14 @@ const AppShell = () => {
   return (
     <div className="min-h-screen bg-slate-50">
       <AppHeader />
+      <AppNav />
       <main className="w-full max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6">
         <Routes>
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<NecessidadeCompra />} />
             <Route path="/necessidade-compra" element={<NecessidadeCompra />} />
             <Route path="/estoque" element={<EstoqueProdutos />} />
-            <Route
-              path="/solicitacoes"
-              element={<EmBreve titulo="Solicitações de Compra" />}
-            />
+            <Route path="/solicitacoes" element={<EmBreve titulo="Solicitações de Compra" />} />
             <Route path="/cotacoes" element={<Cotacoes />} />
             <Route path="/pedidos" element={<EmBreve titulo="Pedidos de Compra" />} />
             <Route path="/recebimento" element={<EmBreve titulo="Recebimento" />} />
