@@ -10,6 +10,13 @@ export interface NecessidadeCompraRow {
   qtd_disponivel: number
   projetos_com_entrega_futura: number
   preco_custo: number | null
+  // SPEC-030 Parte 2: marca e fornecedor resolvido (COALESCE
+  // produtos.fornecedor_principal_id / marcas.fornecedor_id) vindos de
+  // vw_necessidade_compra. fornecedor_id nulo => item fora do Pedido em Lote.
+  marca_id: string | null
+  marca_nome: string | null
+  fornecedor_id: string | null
+  fornecedor_nome: string | null
 }
 
 export interface ProgressInfo {
