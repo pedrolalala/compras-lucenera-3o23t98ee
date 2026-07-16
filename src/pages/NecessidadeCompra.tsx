@@ -9,7 +9,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, ShoppingCart, X, RefreshCw, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  Search,
+  ShoppingCart,
+  X,
+  RefreshCw,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
@@ -272,10 +280,11 @@ export default function NecessidadeCompra() {
                                 )}
                                 title={isExpanded ? 'Fechar detalhes' : 'Ver projetos'}
                               >
-                                {isExpanded
-                                  ? <ChevronDown className="w-3 h-3 shrink-0" />
-                                  : <ChevronRight className="w-3 h-3 shrink-0" />
-                                }
+                                {isExpanded ? (
+                                  <ChevronDown className="w-3 h-3 shrink-0" />
+                                ) : (
+                                  <ChevronRight className="w-3 h-3 shrink-0" />
+                                )}
                                 {r.projetos_com_entrega_futura}
                               </button>
                             ) : (
