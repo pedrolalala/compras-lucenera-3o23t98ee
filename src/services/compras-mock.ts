@@ -4,17 +4,8 @@ import type {
   CotacaoItemRow,
   PedidoRow,
   PedidoItemRow,
-  FornecedorOption,
   ProdutoOption,
 } from './compras'
-
-export const mockFornecedores: FornecedorOption[] = [
-  { id: 'f1', nome: 'Distribuidora Luz SP' },
-  { id: 'f2', nome: 'Importadora Crystal' },
-  { id: 'f3', nome: 'TecnoLED Brasil' },
-  { id: 'f4', nome: 'Materiais Elétricos Silva' },
-  { id: 'f5', nome: 'Fornecedor Exemplo Ltda' },
-]
 
 export const mockProdutos: ProdutoOption[] = [
   { id: 'p001', nome: 'Luminária Pendente Cristal 3Lâmpadas', codigo_produto: 301 },

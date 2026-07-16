@@ -9,11 +9,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, ShoppingCart, X, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Search, ShoppingCart, X, RefreshCw, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
 import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
+import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
 import {
   getNecessidadeCompra,
   type NecessidadeCompraRow,
@@ -30,6 +31,7 @@ export default function NecessidadeCompra() {
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedProdutoId, setSelectedProdutoId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
   const [modalOpen, setModalOpen] = useState(false)
   const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
@@ -83,6 +85,11 @@ export default function NecessidadeCompra() {
   }
 
   const totalNecessidade = useMemo(() => rows.reduce((s, r) => s + r.necessidade_compra, 0), [rows])
+
+  function toggleExpand(e: React.MouseEvent, produtoId: string) {
+    e.stopPropagation()
+    setExpandedId((prev) => (prev === produtoId ? null : produtoId))
+  }
 
   return (
     <div className="flex flex-col space-y-4 w-full pb-20 lg:pb-0 xl:h-[calc(100vh-130px)] animate-fade-in-up">
@@ -205,67 +212,99 @@ export default function NecessidadeCompra() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    visibleRows.map((r, idx) => (
-                      <TableRow
-                        key={`${r.produto_id}-${idx}`}
-                        onClick={() => setSelectedProdutoId(r.produto_id)}
-                        className={cn(
-                          'cursor-pointer transition-colors h-14 border-b border-slate-50',
-                          selectedProdutoId === r.produto_id
-                            ? 'bg-primary/5 hover:bg-primary/10'
-                            : 'hover:bg-slate-50/80',
-                        )}
-                      >
-                        <TableCell className="pl-4 sm:pl-6 align-middle py-2">
-                          <span className="inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary font-mono text-xs font-semibold whitespace-nowrap">
-                            {r.produto_codigo || '-'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="align-middle py-2">
-                          <p className="line-clamp-2 text-sm font-medium text-slate-900 leading-snug">
-                            {r.produto}
-                          </p>
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell text-right align-middle py-2">
-                          <span className="text-sm text-slate-600">{r.qtd_fisica}</span>
-                        </TableCell>
-                        <TableCell className="hidden xl:table-cell text-right align-middle py-2">
-                          <span className="text-sm text-amber-700 font-medium">
-                            {r.qtd_comprometida}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right align-middle py-2">
-                          <span className="inline-flex items-center gap-1 justify-end">
-                            <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                            <span className="font-bold text-red-600 text-sm">
-                              {r.necessidade_compra}
-                            </span>
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right align-middle py-2">
-                          <span className="text-sm text-slate-500">
-                            {r.projetos_com_entrega_futura}
-                          </span>
-                        </TableCell>
-                        <TableCell
-                          className="pr-4 sm:pr-6 text-right align-middle py-2"
-                          onClick={(e) => e.stopPropagation()}
+                    visibleRows.flatMap((r, idx) => {
+                      const isExpanded = expandedId === r.produto_id
+                      const detailRow = isExpanded ? (
+                        <TableRow key={`${r.produto_id}-detalhe`} className="hover:bg-transparent">
+                          <TableCell colSpan={7} className="p-0">
+                            <NecessidadeCompraDetalhe produtoId={r.produto_id} />
+                          </TableCell>
+                        </TableRow>
+                      ) : null
+                      return [
+                        <TableRow
+                          key={`${r.produto_id}-${idx}`}
+                          onClick={() => setSelectedProdutoId(r.produto_id)}
+                          className={cn(
+                            'cursor-pointer transition-colors h-14 border-b border-slate-50',
+                            selectedProdutoId === r.produto_id
+                              ? 'bg-primary/5 hover:bg-primary/10'
+                              : 'hover:bg-slate-50/80',
+                          )}
                         >
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            onClick={() => {
-                              setProdutoParaCompra(r)
-                              setModalOpen(true)
-                            }}
+                          <TableCell className="pl-4 sm:pl-6 align-middle py-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary font-mono text-xs font-semibold whitespace-nowrap">
+                              {r.produto_codigo || '-'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle py-2">
+                            <p className="line-clamp-2 text-sm font-medium text-slate-900 leading-snug">
+                              {r.produto}
+                            </p>
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell text-right align-middle py-2">
+                            <span className="text-sm text-slate-600">{r.qtd_fisica}</span>
+                          </TableCell>
+                          <TableCell className="hidden xl:table-cell text-right align-middle py-2">
+                            <span className="text-sm text-amber-700 font-medium">
+                              {r.qtd_comprometida}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right align-middle py-2">
+                            <span className="inline-flex items-center gap-1 justify-end">
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                              <span className="font-bold text-red-600 text-sm">
+                                {r.necessidade_compra}
+                              </span>
+                            </span>
+                          </TableCell>
+                          <TableCell
+                            className="text-right align-middle py-2"
+                            onClick={(e) => toggleExpand(e, r.produto_id)}
                           >
-                            <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-                            Comprar
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                            {r.projetos_com_entrega_futura > 0 ? (
+                              <button
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors',
+                                  isExpanded
+                                    ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                    : 'bg-red-50 text-red-600 hover:bg-red-100',
+                                )}
+                                title={isExpanded ? 'Fechar detalhes' : 'Ver projetos'}
+                              >
+                                {isExpanded
+                                  ? <ChevronDown className="w-3 h-3 shrink-0" />
+                                  : <ChevronRight className="w-3 h-3 shrink-0" />
+                                }
+                                {r.projetos_com_entrega_futura}
+                              </button>
+                            ) : (
+                              <span className="text-sm text-slate-400">
+                                {r.projetos_com_entrega_futura}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell
+                            className="pr-4 sm:pr-6 text-right align-middle py-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                              onClick={() => {
+                                setProdutoParaCompra(r)
+                                setModalOpen(true)
+                              }}
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+                              Comprar
+                            </Button>
+                          </TableCell>
+                        </TableRow>,
+                        ...(detailRow ? [detailRow] : []),
+                      ]
+                    })
                   )}
                 </TableBody>
               </Table>
