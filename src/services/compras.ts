@@ -5,7 +5,6 @@ import {
   mockCotacaoItens,
   mockPedidos,
   mockPedidoItens,
-  mockFornecedores,
   mockProdutos,
 } from './compras-mock'
 
@@ -59,10 +58,6 @@ export interface PedidoItemRow {
   quantidade: number
   qtd_recebida: number
   custo_unitario: number
-}
-export interface FornecedorOption {
-  id: string
-  nome: string
 }
 export interface ProdutoOption {
   id: string
@@ -219,15 +214,6 @@ export async function atualizarStatusPedido(
     p_status: status,
   })
   return error ? { success: false, error: error.message } : { success: true }
-}
-export async function getFornecedores(): Promise<FornecedorOption[]> {
-  const { data, error } = await (supabase as any)
-    .from('contatos')
-    .select('id, nome, nome_empresa')
-    .eq('ativo', true)
-    .order('nome')
-  if (error || !data?.length) return mockFornecedores
-  return data.map((d: any) => ({ id: d.id, nome: d.nome_empresa || d.nome })) as FornecedorOption[]
 }
 export async function getProdutos(): Promise<ProdutoOption[]> {
   const { data, error } = await (supabase as any)
