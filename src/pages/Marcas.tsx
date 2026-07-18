@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Table,
   TableBody,
@@ -9,15 +10,28 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, X, RefreshCw, Tags, Pencil, Loader2 } from 'lucide-react'
+import { Search, X, RefreshCw, Tags, Pencil, Loader2, Check, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import {
   getMarcasComFornecedor,
   atualizarFornecedorMarca,
+  getSugestoesFornecedorMarca,
   type MarcaComFornecedor,
+  type SugestaoFornecedorMarca,
 } from '@/services/marcas'
 import { getFornecedores, type Fornecedor } from '@/services/pedido-compra'
+import {
+  ModalRevisarSugestoesFornecedor,
+  type SugestaoRevisao,
+} from '@/components/marcas/ModalRevisarSugestoesFornecedor'
+
+// SPEC-034: limiares de exibição/lote da sugestão automática de fornecedor
+// por nome (RPC sugerir_fornecedores_marcas). Constantes no frontend,
+// ajustáveis sem nova migration — ver seção 5 da SPEC-034 para a análise
+// empírica que embasou os valores iniciais.
+const LIMIAR_SUGESTAO_FORTE = 0.9 // badge "Sugestão forte", elegível para lote
+const LIMIAR_SUGESTAO_MINIMA = 0.6 // abaixo disso, nenhuma sugestão é exibida
 
 export default function Marcas() {
   const { toast } = useToast()
@@ -26,6 +40,14 @@ export default function Marcas() {
   const [loading, setLoading] = useState(true)
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  // SPEC-034: sugestão automática de fornecedor por marca (RPC
+  // sugerir_fornecedores_marcas). Não depende do texto de busca — carregada
+  // junto do carregamento inicial e do botão "Atualizar", não a cada tecla
+  // digitada no filtro (ver isFirstRender abaixo).
+  const [sugestoes, setSugestoes] = useState<Map<string, SugestaoFornecedorMarca>>(new Map())
+  const [modalRevisaoOpen, setModalRevisaoOpen] = useState(false)
+  const isFirstSearchEffect = useRef(true)
 
   // Edição inline do fornecedor por linha — reaproveita a busca fuzzy
   // (getFornecedores, mesma RPC buscar_fornecedores_fuzzy) e o mesmo padrão
@@ -43,7 +65,7 @@ export default function Marcas() {
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  const loadData = useCallback(async () => {
+  const loadMarcas = useCallback(async () => {
     setLoading(true)
     try {
       const data = await getMarcasComFornecedor(debouncedSearch || undefined)
@@ -59,9 +81,40 @@ export default function Marcas() {
     }
   }, [debouncedSearch, toast])
 
+  const loadSugestoes = useCallback(async () => {
+    try {
+      const data = await getSugestoesFornecedorMarca()
+      setSugestoes(data)
+    } catch {
+      toast({
+        title: 'Erro',
+        description: 'Falha ao carregar sugestões de fornecedor.',
+        variant: 'destructive',
+      })
+    }
+  }, [toast])
+
+  // Carregamento inicial e botão "Atualizar": marcas + sugestões em
+  // paralelo (SPEC-034, seção 5).
+  const loadData = useCallback(async () => {
+    await Promise.all([loadMarcas(), loadSugestoes()])
+  }, [loadMarcas, loadSugestoes])
+
   useEffect(() => {
     loadData()
-  }, [loadData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Mudança no filtro de busca (debounced): recarrega só as marcas — as
+  // sugestões não dependem do termo digitado (SPEC-034).
+  useEffect(() => {
+    if (isFirstSearchEffect.current) {
+      isFirstSearchEffect.current = false
+      return
+    }
+    loadMarcas()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch])
 
   // Marcas sem fornecedor primeiro (prioriza o backfill), depois por
   // quantidade de produtos ativos vinculados (maior impacto primeiro) —
@@ -76,6 +129,27 @@ export default function Marcas() {
   }, [marcas])
 
   const totalSemFornecedor = useMemo(() => marcas.filter((m) => !m.fornecedor_id).length, [marcas])
+
+  // SPEC-034: candidatos de alta confiança (score >= LIMIAR_SUGESTAO_FORTE)
+  // entre as marcas ainda sem fornecedor — alimenta o card "Sugestões
+  // fortes" e a lista revisada pelo ModalRevisarSugestoesFornecedor.
+  const sugestoesFortes = useMemo<SugestaoRevisao[]>(() => {
+    return marcas
+      .filter((m) => !m.fornecedor_id)
+      .map((m) => {
+        const s = sugestoes.get(m.id)
+        if (!s || s.score < LIMIAR_SUGESTAO_FORTE) return null
+        return {
+          marcaId: m.id,
+          marcaNome: m.nome,
+          fornecedorId: s.fornecedorId,
+          fornecedorNome: s.fornecedorNome,
+          score: s.score,
+        }
+      })
+      .filter((s): s is SugestaoRevisao => s !== null)
+      .sort((a, b) => b.score - a.score)
+  }, [marcas, sugestoes])
 
   function iniciarEdicao(marcaId: string) {
     setEditingId(marcaId)
@@ -114,7 +188,13 @@ export default function Marcas() {
     }
   }
 
-  async function selecionarFornecedor(marcaId: string, fornecedor: Fornecedor) {
+  // SPEC-034: retorna boolean (sucesso/falha) além de manter o comportamento
+  // já existente (toast individual, atualização de estado local, tratamento
+  // de erro de RLS) — o valor de retorno é usado só pelo fluxo em lote
+  // (handleConfirmarLote) para montar o toast-resumo; as chamadas
+  // individuais já existentes (clique em "Confirmar"/seleção manual) seguem
+  // ignorando o retorno.
+  async function selecionarFornecedor(marcaId: string, fornecedor: Fornecedor): Promise<boolean> {
     setSavingId(marcaId)
     try {
       await atualizarFornecedorMarca(marcaId, fornecedor.id)
@@ -130,6 +210,7 @@ export default function Marcas() {
         description: `${fornecedor.nome} vinculado com sucesso.`,
       })
       cancelarEdicao()
+      return true
     } catch (err: any) {
       toast({
         title: 'Erro ao atualizar fornecedor',
@@ -138,9 +219,43 @@ export default function Marcas() {
           'Verifique se seu usuário tem permissão de admin/gerente e tente novamente.',
         variant: 'destructive',
       })
+      return false
     } finally {
       setSavingId(null)
     }
+  }
+
+  // SPEC-034: chamada pelo modal de revisão em lote (ModalRevisarSugestoesFornecedor).
+  // Percorre as marcas selecionadas sequencialmente (não Promise.all), para
+  // não disparar dezenas de UPDATE simultâneos contra o Supabase, reusando
+  // exatamente selecionarFornecedor (mesmo caminho de persistência/erro do
+  // fluxo individual).
+  async function handleConfirmarLote(marcaIds: string[]) {
+    let sucesso = 0
+    let falhas = 0
+    for (const marcaId of marcaIds) {
+      const sugestao = sugestoes.get(marcaId)
+      if (!sugestao) {
+        falhas++
+        continue
+      }
+      const ok = await selecionarFornecedor(marcaId, {
+        id: sugestao.fornecedorId,
+        nome: sugestao.fornecedorNome,
+      })
+      if (ok) sucesso++
+      else falhas++
+    }
+
+    toast({
+      title: falhas === 0 ? 'Vínculos aplicados' : 'Aplicação concluída com falhas',
+      description:
+        falhas === 0
+          ? `${sucesso} vínculo(s) aplicado(s).`
+          : `${sucesso} aplicado(s), ${falhas} falharam.`,
+      variant: falhas === 0 ? 'default' : 'destructive',
+    })
+    setModalRevisaoOpen(false)
   }
 
   async function removerFornecedor(marcaId: string) {
@@ -148,7 +263,9 @@ export default function Marcas() {
     try {
       await atualizarFornecedorMarca(marcaId, null)
       setMarcas((prev) =>
-        prev.map((m) => (m.id === marcaId ? { ...m, fornecedor_id: null, fornecedor_nome: null } : m)),
+        prev.map((m) =>
+          m.id === marcaId ? { ...m, fornecedor_id: null, fornecedor_nome: null } : m,
+        ),
       )
       toast({ title: 'Vínculo removido', description: 'A marca ficou sem fornecedor padrão.' })
       cancelarEdicao()
@@ -173,21 +290,33 @@ export default function Marcas() {
             Pedido em Lote.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={loadData}
-          className="shadow-sm w-full sm:w-auto"
-          disabled={loading}
-        >
-          <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
-          Atualizar
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          {!loading && sugestoesFortes.length > 0 && (
+            <Button
+              onClick={() => setModalRevisaoOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm w-full sm:w-auto"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              Aplicar sugestões fortes ({sugestoesFortes.length})
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={loadData}
+            className="shadow-sm w-full sm:w-auto"
+            disabled={loading}
+          >
+            <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {!loading && marcas.length > 0 && (
         <div className="flex flex-wrap gap-3 shrink-0">
           <SummaryCard label="Marcas cadastradas" value={marcas.length} color="slate" />
           <SummaryCard label="Sem fornecedor" value={totalSemFornecedor} color="amber" />
+          <SummaryCard label="Sugestões fortes" value={sugestoesFortes.length} color="emerald" />
         </div>
       )}
 
@@ -266,6 +395,12 @@ export default function Marcas() {
                 sortedMarcas.map((m) => {
                   const isEditing = editingId === m.id
                   const isSaving = savingId === m.id
+                  // SPEC-034: sugestão exibível só para marcas ainda sem
+                  // fornecedor (a RPC já filtra por fornecedor_id IS NULL,
+                  // mas o score mínimo de exibição fica no frontend).
+                  const sugestao = sugestoes.get(m.id)
+                  const sugestaoExibivel =
+                    sugestao && sugestao.score >= LIMIAR_SUGESTAO_MINIMA ? sugestao : null
                   return (
                     <TableRow key={m.id} className="h-14 border-b border-slate-50">
                       <TableCell className="pl-4 sm:pl-6 align-middle py-2">
@@ -314,6 +449,27 @@ export default function Marcas() {
                           <span className="text-sm text-slate-700 line-clamp-1">
                             {m.fornecedor_nome}
                           </span>
+                        ) : sugestaoExibivel ? (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge
+                              className={cn(
+                                'border font-medium',
+                                sugestaoExibivel.score >= LIMIAR_SUGESTAO_FORTE
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                  : 'bg-amber-50 border-amber-200 text-amber-700',
+                              )}
+                            >
+                              {sugestaoExibivel.score >= LIMIAR_SUGESTAO_FORTE
+                                ? 'Sugestão forte'
+                                : 'Sugestão'}
+                            </Badge>
+                            <span className="text-sm text-slate-700 line-clamp-1">
+                              {sugestaoExibivel.fornecedorNome}
+                            </span>
+                            <span className="text-xs text-slate-400 tabular-nums">
+                              {Math.round(sugestaoExibivel.score * 100)}%
+                            </span>
+                          </div>
                         ) : (
                           <span className="text-sm text-amber-600 italic">Sem fornecedor</span>
                         )}
@@ -348,16 +504,35 @@ export default function Marcas() {
                             </Button>
                           </div>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            disabled={isSaving}
-                            onClick={() => iniciarEdicao(m.id)}
-                          >
-                            <Pencil className="w-3.5 h-3.5 mr-1" />
-                            Editar
-                          </Button>
+                          <div className="flex justify-end gap-1">
+                            {sugestaoExibivel && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                disabled={isSaving}
+                                onClick={() =>
+                                  selecionarFornecedor(m.id, {
+                                    id: sugestaoExibivel.fornecedorId,
+                                    nome: sugestaoExibivel.fornecedorNome,
+                                  })
+                                }
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1" />
+                                Confirmar
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                              disabled={isSaving}
+                              onClick={() => iniciarEdicao(m.id)}
+                            >
+                              <Pencil className="w-3.5 h-3.5 mr-1" />
+                              Editar
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -368,6 +543,13 @@ export default function Marcas() {
           </Table>
         </div>
       </div>
+
+      <ModalRevisarSugestoesFornecedor
+        open={modalRevisaoOpen}
+        onOpenChange={setModalRevisaoOpen}
+        sugestoes={sugestoesFortes}
+        onConfirmar={handleConfirmarLote}
+      />
     </div>
   )
 }
@@ -379,11 +561,12 @@ function SummaryCard({
 }: {
   label: string
   value: number
-  color: 'slate' | 'amber'
+  color: 'slate' | 'amber' | 'emerald'
 }) {
   const colorMap = {
     slate: 'bg-slate-50 border-slate-200 text-slate-800',
     amber: 'bg-amber-50 border-amber-200 text-amber-800',
+    emerald: 'bg-emerald-50 border-emerald-200 text-emerald-800',
   }
   return (
     <div className={cn('rounded-xl border px-4 py-2 flex items-center gap-3', colorMap[color])}>

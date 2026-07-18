@@ -74,6 +74,33 @@ async function contarProdutosAtivosPorMarca(): Promise<Map<string, number>> {
   return contagem
 }
 
+// SPEC-034: sugestão (não aplicação) de fornecedor por marca, calculada sob
+// demanda pela RPC sugerir_fornecedores_marcas() (top-1 candidato por marca
+// sem fornecedor, via word_similarity()). A tela decide o que exibir/aplicar
+// a partir do score — a RPC só filtra ruído (piso técnico 0.3).
+export interface SugestaoFornecedorMarca {
+  marcaId: string
+  fornecedorId: string
+  fornecedorNome: string
+  score: number
+}
+
+export async function getSugestoesFornecedorMarca(): Promise<Map<string, SugestaoFornecedorMarca>> {
+  const { data, error } = await (supabase as any).rpc('sugerir_fornecedores_marcas')
+  if (error) throw error
+
+  const mapa = new Map<string, SugestaoFornecedorMarca>()
+  ;((data ?? []) as any[]).forEach((d) => {
+    mapa.set(d.marca_id, {
+      marcaId: d.marca_id,
+      fornecedorId: d.fornecedor_id,
+      fornecedorNome: d.fornecedor_nome,
+      score: d.score,
+    })
+  })
+  return mapa
+}
+
 export async function atualizarFornecedorMarca(
   marcaId: string,
   fornecedorId: string | null,
