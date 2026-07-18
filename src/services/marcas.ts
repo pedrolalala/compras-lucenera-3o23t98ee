@@ -78,9 +78,23 @@ export async function atualizarFornecedorMarca(
   marcaId: string,
   fornecedorId: string | null,
 ): Promise<void> {
-  const { error } = await (supabase as any)
+  // SPEC-033 (correção pós-publicação, 2026-07-18): sem .select() encadeado,
+  // o Supabase-js usa `Prefer: return=minimal` — se a policy RLS de UPDATE
+  // bloquear a linha (ou o .eq('id', ...) não casar com nada), o PostgREST
+  // responde 204 No Content sem erro nenhum, e um UPDATE que afetou 0 linhas
+  // parecia sucesso. `.select('id').single()` força o retorno da linha
+  // afetada e lança PGRST116 quando 0 linhas voltam, o que tratamos abaixo
+  // com uma mensagem legível em vez do erro cru do Postgrest.
+  const { data, error } = await (supabase as any)
     .from('marcas')
     .update({ fornecedor_id: fornecedorId })
     .eq('id', marcaId)
-  if (error) throw error
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(
+      'Nenhuma marca foi atualizada. Verifique se seu usuário tem permissão de admin/gerente.',
+    )
+  }
 }
