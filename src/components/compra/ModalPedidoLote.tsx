@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table'
 import { Loader2, PackageCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
 import { criarPedidoCompraLote } from '@/services/pedido-compra'
 import type { NecessidadeCompraRow } from '@/services/necessidade-compra'
 
@@ -38,6 +39,11 @@ interface LinhaLote {
   produto_codigo: string | null
   quantidade: string
   custoUnitario: string
+  // SPEC-033: contexto de estoque exibido junto ao campo de quantidade —
+  // já vem na prop `itens` (NecessidadeCompraRow), sem nova query.
+  qtdFisica: number
+  qtdComprometida: number
+  qtdDisponivel: number
 }
 
 export function ModalPedidoLote({
@@ -66,6 +72,9 @@ export function ModalPedidoLote({
         produto_codigo: it.produto_codigo,
         quantidade: String(it.necessidade_compra),
         custoUnitario: it.preco_custo != null ? String(it.preco_custo) : '',
+        qtdFisica: it.qtd_fisica,
+        qtdComprometida: it.qtd_comprometida,
+        qtdDisponivel: it.qtd_disponivel,
       })),
     )
     setNumero('')
@@ -158,6 +167,26 @@ export function ModalPedidoLote({
                           {l.produto_codigo}
                         </span>
                       )}
+                      <p className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span>
+                          Física: <span className="font-medium text-slate-700">{l.qtdFisica}</span>
+                        </span>
+                        <span>
+                          Comprometida:{' '}
+                          <span className="font-medium text-amber-700">{l.qtdComprometida}</span>
+                        </span>
+                        <span>
+                          Disponível:{' '}
+                          <span
+                            className={cn(
+                              'font-semibold',
+                              l.qtdDisponivel < 0 ? 'text-red-600' : 'text-emerald-700',
+                            )}
+                          >
+                            {l.qtdDisponivel}
+                          </span>
+                        </span>
+                      </p>
                     </TableCell>
                     <TableCell className="text-right">
                       <Input

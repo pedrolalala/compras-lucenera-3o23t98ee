@@ -7,6 +7,7 @@ import { AuthProvider } from '@/hooks/use-auth'
 import NecessidadeCompra from './pages/NecessidadeCompra'
 import EstoqueProdutos from './pages/EstoqueProdutos'
 import Cotacoes from './pages/Cotacoes'
+import Marcas from './pages/Marcas'
 import EmBreve from './pages/EmBreve'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -34,6 +35,7 @@ const AppShell = () => {
             <Route path="/" element={<NecessidadeCompra />} />
             <Route path="/necessidade-compra" element={<NecessidadeCompra />} />
             <Route path="/estoque" element={<EstoqueProdutos />} />
+            <Route path="/marcas" element={<Marcas />} />
             <Route path="/solicitacoes" element={<EmBreve titulo="Solicitações de Compra" />} />
             <Route path="/cotacoes" element={<Cotacoes />} />
             <Route path="/pedidos" element={<EmBreve titulo="Pedidos de Compra" />} />

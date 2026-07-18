@@ -1,5 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Package, FileText, Quote, ShoppingCart, PackageCheck } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Package,
+  FileText,
+  Quote,
+  ShoppingCart,
+  PackageCheck,
+  Tags,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -9,6 +17,7 @@ const navItems = [
   { to: '/cotacoes', label: 'Cotações', icon: Quote },
   { to: '/pedidos', label: 'Pedidos', icon: ShoppingCart },
   { to: '/recebimento', label: 'Recebimento', icon: PackageCheck },
+  { to: '/marcas', label: 'Marcas', icon: Tags },
 ]
 
 export function AppNav() {
