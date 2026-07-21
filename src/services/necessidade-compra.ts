@@ -17,6 +17,9 @@ export interface NecessidadeCompraRow {
   marca_nome: string | null
   fornecedor_id: string | null
   fornecedor_nome: string | null
+  // SPEC-038 Item 5: desconto negociado na COMPRA (produtos.percentual_desconto_compra),
+  // distinto de produtos.porc_desconto (usado no preço de VENDA).
+  percentual_desconto_compra: number | null
 }
 
 export interface ProgressInfo {

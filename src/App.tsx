@@ -8,6 +8,7 @@ import NecessidadeCompra from './pages/NecessidadeCompra'
 import EstoqueProdutos from './pages/EstoqueProdutos'
 import Cotacoes from './pages/Cotacoes'
 import Marcas from './pages/Marcas'
+import PedidosCompra from './pages/PedidosCompra'
 import EmBreve from './pages/EmBreve'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -38,7 +39,7 @@ const AppShell = () => {
             <Route path="/marcas" element={<Marcas />} />
             <Route path="/solicitacoes" element={<EmBreve titulo="Solicitações de Compra" />} />
             <Route path="/cotacoes" element={<Cotacoes />} />
-            <Route path="/pedidos" element={<EmBreve titulo="Pedidos de Compra" />} />
+            <Route path="/pedidos" element={<PedidosCompra />} />
             <Route path="/recebimento" element={<EmBreve titulo="Recebimento" />} />
           </Route>
           <Route path="*" element={<NotFound />} />

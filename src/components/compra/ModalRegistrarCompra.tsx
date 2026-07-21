@@ -10,10 +10,22 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Loader2, ShoppingCart, Search, X } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import { criarPedidoCompra, getFornecedores, type Fornecedor } from '@/services/pedido-compra'
+import {
+  criarPedidoCompra,
+  getFornecedores,
+  getProdutoImpostos,
+  vincularOrigemPedidoItem,
+  gerarParcelasPedidoCompra,
+  type Fornecedor,
+} from '@/services/pedido-compra'
 import type { NecessidadeCompraRow } from '@/services/necessidade-compra'
+import {
+  getNecessidadeCompraDetalhe,
+  type NecessidadeCompraDetalheRow,
+} from '@/services/necessidade-compra-detalhe'
 
 interface Props {
   open: boolean
@@ -27,11 +39,19 @@ const EMPTY = {
   fornecedorNome: '',
   fornecedorSearch: '',
   quantidade: '',
-  custoUnitario: '',
+  custoLiquido: '',
+  valorIcms: '',
+  valorIpi: '',
+  valorSt: '',
   numero: '',
   dataPrevista: '',
   condicoesPagamento: '',
   observacao: '',
+  gerarParcelas: false,
+}
+
+function round4(n: number) {
+  return Math.round(n * 10000) / 10000
 }
 
 export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }: Props) {
@@ -45,12 +65,20 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
+  // SPEC-038 Item 3: candidatos de origem (projeto_item_id) motivando a
+  // necessidade deste produto — vínculo opcional, informativo.
+  const [origens, setOrigens] = useState<NecessidadeCompraDetalheRow[]>([])
+  const [loadingOrigens, setLoadingOrigens] = useState(false)
+  const [origensSelecionadas, setOrigensSelecionadas] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     if (!open || !produto) return
     setForm({ ...EMPTY, quantidade: String(produto.necessidade_compra) })
     setFornecedores([])
     setShowList(false)
+    setOrigensSelecionadas(new Set())
     carregarFornecedores('')
+    carregarOrigens(produto.produto_id)
   }, [open, produto])
 
   useEffect(() => {
@@ -76,6 +104,41 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
     }
   }
 
+  async function carregarOrigens(produtoId: string) {
+    setLoadingOrigens(true)
+    try {
+      const data = await getNecessidadeCompraDetalhe(produtoId)
+      setOrigens(data)
+    } catch {
+      setOrigens([])
+    } finally {
+      setLoadingOrigens(false)
+    }
+  }
+
+  // SPEC-038 Item 1 (P-02): pré-preenche custo líquido + ICMS/IPI/ST a
+  // partir de produtos (e produto_fornecedores, se houver override para o
+  // fornecedor selecionado) — sempre editável depois.
+  async function preencherImpostos(produtoId: string, fornecedorId: string | null) {
+    try {
+      const dados = await getProdutoImpostos(produtoId, fornecedorId)
+      const custoLiquido = dados.custoUnitario ?? 0
+      const icms =
+        custoLiquido > 0 ? round4((custoLiquido * (dados.icmsEntradaPerc ?? 0)) / 100) : 0
+      const ipi = custoLiquido > 0 ? round4((custoLiquido * (dados.ipiEntradaPerc ?? 0)) / 100) : 0
+      const st = custoLiquido > 0 ? round4((custoLiquido * (dados.porcStPerc ?? 0)) / 100) : 0
+      setForm((prev) => ({
+        ...prev,
+        custoLiquido: custoLiquido > 0 ? String(custoLiquido) : prev.custoLiquido,
+        valorIcms: String(icms),
+        valorIpi: String(ipi),
+        valorSt: String(st),
+      }))
+    } catch {
+      // silencioso — campos continuam editáveis manualmente mesmo sem pré-preenchimento
+    }
+  }
+
   function selecionarFornecedor(f: Fornecedor) {
     setForm((prev) => ({
       ...prev,
@@ -84,6 +147,7 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
       fornecedorSearch: '',
     }))
     setShowList(false)
+    if (produto) preencherImpostos(produto.produto_id, f.id)
   }
 
   function limparFornecedor() {
@@ -91,10 +155,23 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
     setShowList(false)
   }
 
+  function toggleOrigem(projetoItemId: string) {
+    setOrigensSelecionadas((prev) => {
+      const next = new Set(prev)
+      if (next.has(projetoItemId)) next.delete(projetoItemId)
+      else next.add(projetoItemId)
+      return next
+    })
+  }
+
   const qtd = parseFloat(form.quantidade)
-  const custo = parseFloat(form.custoUnitario)
-  const canSubmit =
-    !!form.fornecedorId && qtd > 0 && custo > 0 && form.numero.trim().length > 0 && !loading
+  const custoLiquido = parseFloat(form.custoLiquido) || 0
+  const valorIcms = parseFloat(form.valorIcms) || 0
+  const valorIpi = parseFloat(form.valorIpi) || 0
+  const valorSt = parseFloat(form.valorSt) || 0
+  const custoUnitarioTotal = custoLiquido + valorIcms + valorIpi + valorSt
+
+  const canSubmit = !!form.fornecedorId && qtd > 0 && custoUnitarioTotal > 0 && !loading
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -105,12 +182,48 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
         produto_id: produto.produto_id,
         fornecedor_id: form.fornecedorId,
         quantidade: qtd,
-        custo_unitario: custo,
-        numero: form.numero.trim(),
+        custo_unitario: custoUnitarioTotal,
+        numero: form.numero.trim() || undefined,
         data_prevista_entrega: form.dataPrevista || undefined,
         condicoes_pagamento: form.condicoesPagamento.trim() || undefined,
         observacao: form.observacao.trim() || undefined,
+        custo_liquido: custoLiquido || undefined,
+        valor_icms: valorIcms || undefined,
+        valor_ipi: valorIpi || undefined,
+        valor_st: valorSt || undefined,
       })
+
+      if (origensSelecionadas.size > 0) {
+        try {
+          await vincularOrigemPedidoItem(
+            Array.from(origensSelecionadas).map((projetoItemId) => ({
+              pedido_compra_item_id: result.pedido_item_id,
+              projeto_item_id: projetoItemId,
+            })),
+          )
+        } catch (err: any) {
+          toast({
+            title: 'Pedido criado, mas vínculo de origem falhou',
+            description: err?.message ?? 'Tente vincular manualmente depois.',
+            variant: 'destructive',
+          })
+        }
+      }
+
+      if (form.gerarParcelas && form.condicoesPagamento.trim()) {
+        try {
+          await gerarParcelasPedidoCompra(result.pedido_id)
+        } catch (err: any) {
+          toast({
+            title: 'Pedido criado, mas parcelas não foram geradas',
+            description:
+              err?.message ??
+              'Condições de pagamento não puderam ser interpretadas. Gere as parcelas manualmente.',
+            variant: 'destructive',
+          })
+        }
+      }
+
       toast({
         title: 'Pedido registrado',
         description: `Pedido #${result.numero} registrado com sucesso.`,
@@ -130,8 +243,8 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
   if (!produto) return null
 
   const totalEstimado =
-    qtd > 0 && custo > 0
-      ? (qtd * custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    qtd > 0 && custoUnitarioTotal > 0
+      ? (qtd * custoUnitarioTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
       : null
 
   return (
@@ -221,36 +334,83 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
             )}
           </div>
 
-          {/* Quantidade e Custo */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-sm text-slate-600">
-                Quantidade <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                type="number"
-                min="0.001"
-                step="0.001"
-                placeholder="0"
-                className="h-11 text-sm"
-                value={form.quantidade}
-                onChange={(e) => setForm((prev) => ({ ...prev, quantidade: e.target.value }))}
-              />
+          {/* Quantidade */}
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
+              Quantidade <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              type="number"
+              min="0.001"
+              step="0.001"
+              placeholder="0"
+              className="h-11 text-sm"
+              value={form.quantidade}
+              onChange={(e) => setForm((prev) => ({ ...prev, quantidade: e.target.value }))}
+            />
+          </div>
+
+          {/* Custo líquido + impostos (SPEC-038 Item 1) */}
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
+              Custo e impostos (R$/un.) <span className="text-red-500">*</span>
+            </Label>
+            <div className="grid grid-cols-4 gap-2">
+              <div>
+                <Label className="text-[11px] text-slate-500 font-normal">Custo líquido</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  className="h-10 text-sm"
+                  value={form.custoLiquido}
+                  onChange={(e) => setForm((prev) => ({ ...prev, custoLiquido: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] text-slate-500 font-normal">ICMS</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  className="h-10 text-sm"
+                  value={form.valorIcms}
+                  onChange={(e) => setForm((prev) => ({ ...prev, valorIcms: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] text-slate-500 font-normal">IPI</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  className="h-10 text-sm"
+                  value={form.valorIpi}
+                  onChange={(e) => setForm((prev) => ({ ...prev, valorIpi: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] text-slate-500 font-normal">ST</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  className="h-10 text-sm"
+                  value={form.valorSt}
+                  onChange={(e) => setForm((prev) => ({ ...prev, valorSt: e.target.value }))}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm text-slate-600">
-                Custo unitário (R$) <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="0,00"
-                className="h-11 text-sm"
-                value={form.custoUnitario}
-                onChange={(e) => setForm((prev) => ({ ...prev, custoUnitario: e.target.value }))}
-              />
-            </div>
+            <p className="text-xs text-slate-500 text-right">
+              Custo unitário total:{' '}
+              <span className="font-semibold text-slate-700">
+                {custoUnitarioTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
+            </p>
           </div>
 
           {totalEstimado && (
@@ -259,13 +419,11 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
             </p>
           )}
 
-          {/* Número do pedido */}
+          {/* Número do pedido — SPEC-038 Item 2: opcional, gerado automaticamente */}
           <div className="space-y-2">
-            <Label className="text-sm text-slate-600">
-              Nº do pedido / referência <span className="text-red-500">*</span>
-            </Label>
+            <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
             <Input
-              placeholder="ex: PC-2026-001"
+              placeholder="Gerado automaticamente se deixado em branco (ex: PC-2026-0001)"
               className="h-11 text-sm"
               value={form.numero}
               onChange={(e) => setForm((prev) => ({ ...prev, numero: e.target.value }))}
@@ -283,7 +441,7 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
             />
           </div>
 
-          {/* Condições de pagamento */}
+          {/* Condições de pagamento — SPEC-038 Item 4: opção de gerar parcelas */}
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">Condições de pagamento (opcional)</Label>
             <Input
@@ -292,7 +450,51 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
               value={form.condicoesPagamento}
               onChange={(e) => setForm((prev) => ({ ...prev, condicoesPagamento: e.target.value }))}
             />
+            <label className="flex items-center gap-2 text-xs text-slate-600 pt-1">
+              <Checkbox
+                checked={form.gerarParcelas}
+                disabled={!form.condicoesPagamento.trim()}
+                onCheckedChange={(checked) =>
+                  setForm((prev) => ({ ...prev, gerarParcelas: checked === true }))
+                }
+              />
+              Gerar parcelas automaticamente ao registrar o pedido (editáveis depois)
+            </label>
           </div>
+
+          {/* Origem — SPEC-038 Item 3: vínculo informativo, opcional */}
+          {(loadingOrigens || origens.length > 0) && (
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">
+                Itens de projeto que motivaram esta compra (opcional)
+              </Label>
+              <div className="border border-slate-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-slate-100">
+                {loadingOrigens ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                  </div>
+                ) : (
+                  origens.map((o) => (
+                    <label
+                      key={o.projeto_item_id}
+                      className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50 cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={origensSelecionadas.has(o.projeto_item_id)}
+                        onCheckedChange={() => toggleOrigem(o.projeto_item_id)}
+                      />
+                      <span className="font-mono text-slate-500">{o.projeto_codigo ?? '—'}</span>
+                      <span className="text-slate-700 truncate flex-1">
+                        {o.projeto_nome ?? '—'}{' '}
+                        {o.orcamento_numero ? `· ${o.orcamento_numero}` : ''}
+                      </span>
+                      <span className="text-slate-400">{o.cliente ?? ''}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Observação */}
           <div className="space-y-2">

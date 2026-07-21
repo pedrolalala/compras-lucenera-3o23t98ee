@@ -17,7 +17,7 @@ import {
   type NecessidadeCompraRow,
   type ProgressInfo,
 } from '@/services/necessidade-compra'
-import { atualizarPrecoCusto } from '@/services/cotacoes'
+import { atualizarPrecoCusto, atualizarDescontoCompra } from '@/services/cotacoes'
 
 const VISIBLE_BATCH = 100
 
@@ -36,6 +36,15 @@ interface PrecoEditState {
   saving: boolean
 }
 
+// SPEC-038 Item 5: edição inline de % desconto de compra, mesmo padrão de
+// PrecoEditState — estado separado porque as duas edições (preço e desconto)
+// não devem abrir ao mesmo tempo na mesma linha.
+interface DescontoEditState {
+  produtoId: string
+  valor: string
+  saving: boolean
+}
+
 export default function Cotacoes() {
   const { toast } = useToast()
 
@@ -46,7 +55,9 @@ export default function Cotacoes() {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
   const [editando, setEditando] = useState<PrecoEditState | null>(null)
+  const [editandoDesconto, setEditandoDesconto] = useState<DescontoEditState | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const descontoInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -80,10 +91,22 @@ export default function Cotacoes() {
     if (editando) inputRef.current?.focus()
   }, [editando?.produtoId])
 
+  useEffect(() => {
+    if (editandoDesconto) descontoInputRef.current?.focus()
+  }, [editandoDesconto?.produtoId])
+
   function iniciarEdicao(row: NecessidadeCompraRow) {
     setEditando({
       produtoId: row.produto_id,
       valor: row.preco_custo != null ? String(row.preco_custo) : '',
+      saving: false,
+    })
+  }
+
+  function iniciarEdicaoDesconto(row: NecessidadeCompraRow) {
+    setEditandoDesconto({
+      produtoId: row.produto_id,
+      valor: row.percentual_desconto_compra != null ? String(row.percentual_desconto_compra) : '',
       saving: false,
     })
   }
@@ -119,6 +142,41 @@ export default function Cotacoes() {
 
   function cancelarEdicao() {
     setEditando(null)
+  }
+
+  async function salvarDesconto(produtoId: string) {
+    if (!editandoDesconto || editandoDesconto.produtoId !== produtoId) return
+    const desconto = parseFloat(editandoDesconto.valor.replace(',', '.'))
+    if (isNaN(desconto) || desconto < 0 || desconto > 100) {
+      toast({
+        title: 'Valor inválido',
+        description: 'Digite um percentual entre 0 e 100.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setEditandoDesconto((e) => (e ? { ...e, saving: true } : null))
+    try {
+      await atualizarDescontoCompra(produtoId, desconto)
+      setRows((prev) =>
+        prev.map((r) =>
+          r.produto_id === produtoId ? { ...r, percentual_desconto_compra: desconto } : r,
+        ),
+      )
+      toast({ title: 'Desconto atualizado', description: `${desconto.toFixed(2)}%` })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setEditandoDesconto(null)
+    }
+  }
+
+  function cancelarEdicaoDesconto() {
+    setEditandoDesconto(null)
   }
 
   const visibleRows = rows.slice(0, visibleCount)
@@ -235,10 +293,13 @@ export default function Cotacoes() {
                 <TableHead className="w-[12%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   <span className="text-red-600">Déficit</span>
                 </TableHead>
-                <TableHead className="w-[15%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[13%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Preço Compra
                 </TableHead>
-                <TableHead className="pr-4 sm:pr-6 w-[14%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[10%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                  % Desconto
+                </TableHead>
+                <TableHead className="pr-4 sm:pr-6 w-[13%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Custo Estimado
                 </TableHead>
               </TableRow>
@@ -246,7 +307,7 @@ export default function Cotacoes() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={8} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                       <span className="text-xs text-slate-500">
@@ -257,7 +318,7 @@ export default function Cotacoes() {
                 </TableRow>
               ) : visibleRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-40 text-center">
+                  <TableCell colSpan={8} className="h-40 text-center">
                     <div className="flex flex-col items-center text-slate-400">
                       <AlertTriangle className="w-10 h-10 mb-3 text-slate-300" />
                       <p className="text-slate-600 font-medium">
@@ -271,6 +332,7 @@ export default function Cotacoes() {
               ) : (
                 visibleRows.map((r, idx) => {
                   const isEditing = editando?.produtoId === r.produto_id
+                  const isEditingDesconto = editandoDesconto?.produtoId === r.produto_id
                   const custoEstimado =
                     r.preco_custo && r.preco_custo > 0 ? r.necessidade_compra * r.preco_custo : null
 
@@ -358,6 +420,67 @@ export default function Cotacoes() {
                               )}
                             >
                               {r.preco_custo ? fmtBRL(r.preco_custo) : 'Clique p/ editar'}
+                            </span>
+                            <Pencil className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell
+                        className="text-right align-middle py-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (!isEditingDesconto) iniciarEdicaoDesconto(r)
+                        }}
+                      >
+                        {isEditingDesconto ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <Input
+                              ref={descontoInputRef}
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              value={editandoDesconto!.valor}
+                              onChange={(e) =>
+                                setEditandoDesconto((prev) =>
+                                  prev ? { ...prev, valor: e.target.value } : null,
+                                )
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') salvarDesconto(r.produto_id)
+                                if (e.key === 'Escape') cancelarEdicaoDesconto()
+                              }}
+                              onBlur={() => salvarDesconto(r.produto_id)}
+                              className="h-7 w-20 text-xs text-right px-2"
+                              disabled={editandoDesconto!.saving}
+                            />
+                            {editandoDesconto!.saving ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 shrink-0" />
+                            ) : (
+                              <button
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  salvarDesconto(r.produto_id)
+                                }}
+                                className="text-emerald-600 hover:text-emerald-700"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1.5 group cursor-pointer">
+                            <span
+                              className={cn(
+                                'text-sm tabular-nums',
+                                r.percentual_desconto_compra
+                                  ? 'text-slate-700'
+                                  : 'text-slate-400 italic',
+                              )}
+                            >
+                              {r.percentual_desconto_compra
+                                ? `${r.percentual_desconto_compra.toFixed(2)}%`
+                                : 'Clique p/ editar'}
                             </span>
                             <Pencil className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                           </div>

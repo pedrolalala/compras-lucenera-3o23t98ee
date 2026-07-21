@@ -13,6 +13,10 @@ const statusColors: Record<string, string> = {
   parcialmente_recebido: 'bg-orange-100 text-orange-700',
   recebido: 'bg-green-100 text-green-700',
   rejeitado: 'bg-red-100 text-red-700',
+  // SPEC-038 Item 4: status de pedido_compra_parcelas
+  pendente: 'bg-amber-100 text-amber-700',
+  pago: 'bg-green-100 text-green-700',
+  atrasado: 'bg-red-100 text-red-700',
 }
 
 export function StatusBadge({ status }: { status: string }) {

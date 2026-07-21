@@ -414,10 +414,11 @@ export default function NecessidadeCompra() {
                                 )}
                                 title={isExpanded ? 'Fechar detalhes' : 'Ver projetos'}
                               >
-                                {isExpanded
-                                  ? <ChevronDown className="w-3 h-3 shrink-0" />
-                                  : <ChevronRight className="w-3 h-3 shrink-0" />
-                                }
+                                {isExpanded ? (
+                                  <ChevronDown className="w-3 h-3 shrink-0" />
+                                ) : (
+                                  <ChevronRight className="w-3 h-3 shrink-0" />
+                                )}
                                 {r.projetos_com_entrega_futura}
                               </button>
                             ) : (
