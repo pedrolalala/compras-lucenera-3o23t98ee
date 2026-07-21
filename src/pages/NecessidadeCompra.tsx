@@ -35,6 +35,7 @@ import { ModalPedidoLote } from '@/components/compra/ModalPedidoLote'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
 import {
   getNecessidadeCompra,
+  traduzirStatusPedidoCompra,
   type NecessidadeCompraRow,
   type ProgressInfo,
 } from '@/services/necessidade-compra'
@@ -128,7 +129,12 @@ export default function NecessidadeCompra() {
     }
   }
 
-  const totalNecessidade = useMemo(() => rows.reduce((s, r) => s + r.necessidade_compra, 0), [rows])
+  // SPEC-039 (P-04): "Pendente" passa a ser a métrica de destaque — déficit
+  // ainda não coberto por pedido de compra em aberto (reflete o filtro atual
+  // da lista, já que vw_necessidade_compra só traz pendente > 0).
+  // "Necessidade" continua calculada e exibida como coluna informativa
+  // (déficit bruto, sem descontar pedidos).
+  const totalPendente = useMemo(() => rows.reduce((s, r) => s + r.pendente, 0), [rows])
 
   // Fornecedor comum aos itens já selecionados (todas as linhas marcadas
   // resolvem para o mesmo fornecedor_id, por construção de toggleSelect).
@@ -169,7 +175,7 @@ export default function NecessidadeCompra() {
   }
 
   return (
-    <div className="flex flex-col space-y-4 w-full pb-20 lg:pb-0 xl:h-[calc(100vh-130px)] animate-fade-in-up">
+    <div className="flex flex-col space-y-4 w-full h-[calc(100vh-4rem)] px-4 md:px-6 py-3 animate-fade-in-up">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
@@ -204,7 +210,7 @@ export default function NecessidadeCompra() {
       {!loading && rows.length > 0 && (
         <div className="flex gap-3 shrink-0">
           <SummaryCard label="Produtos com necessidade" value={rows.length} color="amber" />
-          <SummaryCard label="Total unidades a comprar" value={totalNecessidade} color="red" />
+          <SummaryCard label="Total unidades pendentes" value={totalPendente} color="red" />
         </div>
       )}
 
@@ -258,37 +264,52 @@ export default function NecessidadeCompra() {
                 : `${visibleRows.length} de ${filteredRows.length} produto(s) com necessidade`}
             </div>
             <div className="overflow-auto flex-1" onScroll={handleScroll}>
-              <Table className="w-full table-fixed">
+              <Table className="min-w-[1750px] w-full table-fixed">
                 <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                   <TableRow className="h-11">
-                    <TableHead className="w-[4%] pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[40px] pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       <span className="sr-only">Selecionar</span>
                     </TableHead>
-                    <TableHead className="w-[13%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[100px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Código
                     </TableHead>
-                    <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[220px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Produto
                     </TableHead>
-                    <TableHead className="w-[10%] hidden md:table-cell text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[120px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Marca
                     </TableHead>
-                    <TableHead className="w-[9%] hidden lg:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[150px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Fornecedor
+                    </TableHead>
+                    <TableHead className="w-[90px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Física
                     </TableHead>
-                    <TableHead className="w-[10%] hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[110px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Comprometida
                     </TableHead>
-                    <TableHead className="w-[10%] hidden xl:table-cell text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[100px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Disponível
                     </TableHead>
-                    <TableHead className="w-[12%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[110px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Necessidade
                     </TableHead>
-                    <TableHead className="w-[9%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[100px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Pendente
+                    </TableHead>
+                    <TableHead className="w-[160px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Empresa que comprou
+                    </TableHead>
+                    <TableHead className="w-[130px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Status do pedido
+                    </TableHead>
+                    <TableHead className="w-[130px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                      Entrega prevista
+                    </TableHead>
+                    <TableHead className="w-[90px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Projetos
                     </TableHead>
-                    <TableHead className="w-[9%] pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                    <TableHead className="w-[100px] pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                       Compra
                     </TableHead>
                   </TableRow>
@@ -296,7 +317,7 @@ export default function NecessidadeCompra() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="h-32 text-center">
+                      <TableCell colSpan={15} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2">
                           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                           <span className="text-xs text-slate-500">Carregando...</span>
@@ -305,7 +326,7 @@ export default function NecessidadeCompra() {
                     </TableRow>
                   ) : visibleRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="h-40 text-center">
+                      <TableCell colSpan={15} className="h-40 text-center">
                         <div className="flex flex-col items-center text-slate-400">
                           <ShoppingCart className="w-10 h-10 mb-3 text-slate-300" />
                           <p className="text-slate-600 font-medium">
@@ -326,7 +347,7 @@ export default function NecessidadeCompra() {
                       const isExpanded = expandedId === r.produto_id
                       const detailRow = isExpanded ? (
                         <TableRow key={`${r.produto_id}-detalhe`} className="hover:bg-transparent">
-                          <TableCell colSpan={10} className="p-0">
+                          <TableCell colSpan={15} className="p-0">
                             <NecessidadeCompraDetalhe produtoId={r.produto_id} />
                           </TableCell>
                         </TableRow>
@@ -367,20 +388,25 @@ export default function NecessidadeCompra() {
                               {r.produto}
                             </p>
                           </TableCell>
-                          <TableCell className="hidden md:table-cell align-middle py-2">
+                          <TableCell className="align-middle py-2">
                             <span className="text-sm text-slate-600 line-clamp-1">
                               {r.marca_nome || '-'}
                             </span>
                           </TableCell>
-                          <TableCell className="hidden lg:table-cell text-right align-middle py-2">
+                          <TableCell className="align-middle py-2">
+                            <span className="text-sm text-slate-600 line-clamp-1">
+                              {r.fornecedor_nome || '-'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right align-middle py-2">
                             <span className="text-sm text-slate-600">{r.qtd_fisica}</span>
                           </TableCell>
-                          <TableCell className="hidden xl:table-cell text-right align-middle py-2">
+                          <TableCell className="text-right align-middle py-2">
                             <span className="text-sm text-amber-700 font-medium">
                               {r.qtd_comprometida}
                             </span>
                           </TableCell>
-                          <TableCell className="hidden xl:table-cell text-right align-middle py-2">
+                          <TableCell className="text-right align-middle py-2">
                             <span
                               className={cn(
                                 'text-sm',
@@ -393,11 +419,37 @@ export default function NecessidadeCompra() {
                             </span>
                           </TableCell>
                           <TableCell className="text-right align-middle py-2">
+                            <span className="text-sm text-slate-500">{r.necessidade_compra}</span>
+                          </TableCell>
+                          <TableCell className="text-right align-middle py-2">
                             <span className="inline-flex items-center gap-1 justify-end">
                               <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                              <span className="font-bold text-red-600 text-sm">
-                                {r.necessidade_compra}
-                              </span>
+                              <span className="font-bold text-red-600 text-sm">{r.pendente}</span>
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle py-2">
+                            <span className="text-sm text-slate-600 line-clamp-1">
+                              {r.qtd_pedidos_abertos === 0
+                                ? '-'
+                                : r.qtd_pedidos_abertos === 1
+                                  ? '1 pedido'
+                                  : `${r.qtd_pedidos_abertos} pedidos`}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle py-2">
+                            <span className="text-sm text-slate-600 line-clamp-1">
+                              {r.status_mais_critico
+                                ? traduzirStatusPedidoCompra(r.status_mais_critico)
+                                : '-'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle py-2">
+                            <span className="text-sm text-slate-600">
+                              {r.proxima_data_prevista_entrega
+                                ? new Date(r.proxima_data_prevista_entrega).toLocaleDateString(
+                                    'pt-BR',
+                                  )
+                                : '-'}
                             </span>
                           </TableCell>
                           <TableCell

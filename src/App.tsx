@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
+import { cn } from '@/lib/utils'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -18,6 +19,9 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 const AppShell = () => {
   const location = useLocation()
   const isLoginRoute = location.pathname === '/login'
+  // SPEC-039: Necessidade de Compra full-width/full-height — sem o limite de
+  // 1600px/padding aplicado por padrão a todas as rotas.
+  const isFullWidthRoute = location.pathname === '/' || location.pathname === '/necessidade-compra'
 
   if (isLoginRoute) {
     return (
@@ -30,7 +34,12 @@ const AppShell = () => {
   return (
     <div className="min-h-screen bg-slate-50">
       <AppHeader />
-      <main className="w-full max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6">
+      <main
+        className={cn(
+          'w-full',
+          isFullWidthRoute ? '' : 'max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6',
+        )}
+      >
         <Routes>
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<NecessidadeCompra />} />
