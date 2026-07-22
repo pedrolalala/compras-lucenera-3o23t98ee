@@ -32,12 +32,14 @@ const AppShell = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="h-screen flex flex-col overflow-hidden bg-slate-50">
       <AppHeader />
       <main
         className={cn(
-          'w-full',
-          isFullWidthRoute ? '' : 'max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6',
+          'w-full flex-1 min-h-0',
+          isFullWidthRoute
+            ? 'flex flex-col overflow-hidden'
+            : 'overflow-y-auto max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6',
         )}
       >
         <Routes>

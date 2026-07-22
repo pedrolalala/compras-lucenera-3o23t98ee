@@ -179,7 +179,7 @@ export default function NecessidadeCompra() {
   }
 
   return (
-    <div className="flex flex-col space-y-4 w-full h-[calc(100vh-4rem)] px-4 md:px-6 py-3 animate-fade-in-up">
+    <div className="flex flex-col gap-4 w-full flex-1 min-h-0 overflow-hidden px-4 md:px-6 py-3 animate-fade-in-up">
       <div className="shrink-0">
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
           Necessidade de Compra

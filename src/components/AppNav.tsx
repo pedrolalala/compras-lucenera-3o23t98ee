@@ -24,7 +24,7 @@ export function AppNav() {
   const location = useLocation()
 
   return (
-    <nav className="border-b bg-white px-4 md:px-8">
+    <nav className="border-b bg-white px-4 md:px-8 shrink-0">
       <div className="flex items-center gap-1 overflow-x-auto scrollbar-thin">
         {navItems.map((item) => {
           const isActive =
