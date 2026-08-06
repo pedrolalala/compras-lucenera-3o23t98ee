@@ -37,14 +37,28 @@ import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraD
 // SPEC-040: aba nova "Por Item de Orçamento" (Fluxo B) — componente próprio,
 // não altera nada do Fluxo A abaixo.
 import { NecessidadeCompraPorItemTab } from '@/components/compra/NecessidadeCompraPorItemTab'
+// SPEC-054: aba nova "Devolução" — componente próprio, não altera nada dos
+// Fluxos A/B existentes.
+import { DevolucaoEstoqueTab } from '@/components/compra/DevolucaoEstoqueTab'
 import {
   getNecessidadeCompra,
-  traduzirStatusPedidoCompra,
   type NecessidadeCompraRow,
   type ProgressInfo,
 } from '@/services/necessidade-compra'
 
 const VISIBLE_BATCH = 100
+
+// Reuniao 04/08/2026 (Filippo + Debora): arredonda para 3 casas decimais
+// antes de exibir, para nao propagar artefatos de ponto flutuante (ex:
+// "5906,9999...") que a Debora encontrou em teste ao vivo. Nao foi possivel
+// reproduzir o valor exato com os dados atuais do banco (todas as colunas
+// de quantidade sao `numeric`, sem drift visivel), mas o arredondamento
+// defensivo cobre a classe do problema independente da origem exata.
+function formatQty(n: number): string {
+  if (n == null || Number.isNaN(n)) return '0'
+  const rounded = Math.round(n * 1000) / 1000
+  return rounded.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+}
 
 export default function NecessidadeCompra() {
   const { toast } = useToast()
@@ -173,6 +187,33 @@ export default function NecessidadeCompra() {
     })
   }
 
+  // Reuniao 04/08/2026: Debora filtrou por marca e nao tinha como selecionar
+  // todos de uma vez, so um por um. Seleciona todos os itens filtrados que
+  // compartilham o mesmo fornecedor resolvido (mesma regra do toggleSelect
+  // individual) — itens de fornecedor diferente sao ignorados com aviso.
+  const selecionaveisFiltrados = filteredRows.filter((r) => r.fornecedor_id)
+  const todosFiltradosSelecionados =
+    selecionaveisFiltrados.length > 0 &&
+    selecionaveisFiltrados.every((r) => selectedIds.has(r.produto_id))
+
+  function selecionarTodosFiltrados() {
+    if (todosFiltradosSelecionados) {
+      setSelectedIds(new Set())
+      return
+    }
+    if (selecionaveisFiltrados.length === 0) return
+    const fornecedorAlvo = selectedFornecedorId ?? selecionaveisFiltrados[0].fornecedor_id
+    const compativel = selecionaveisFiltrados.filter((r) => r.fornecedor_id === fornecedorAlvo)
+    const ignorados = selecionaveisFiltrados.length - compativel.length
+    setSelectedIds(new Set(compativel.map((r) => r.produto_id)))
+    if (ignorados > 0) {
+      toast({
+        title: `${compativel.length} item(ns) selecionado(s)`,
+        description: `${ignorados} item(ns) com fornecedor diferente não foram selecionados — feche este pedido primeiro ou filtre por marca/fornecedor para juntar o resto.`,
+      })
+    }
+  }
+
   function toggleExpand(e: React.MouseEvent, produtoId: string) {
     e.stopPropagation()
     setExpandedId((prev) => (prev === produtoId ? null : produtoId))
@@ -199,6 +240,7 @@ export default function NecessidadeCompra() {
         <TabsList className="w-fit shrink-0">
           <TabsTrigger value="produto">Por Produto</TabsTrigger>
           <TabsTrigger value="item">Por Item de Orçamento</TabsTrigger>
+          <TabsTrigger value="devolucao">Devolução</TabsTrigger>
         </TabsList>
 
         {/* Bug de layout (Radix + Tailwind): o atributo nativo `hidden` que o
@@ -238,7 +280,11 @@ export default function NecessidadeCompra() {
             {!loading && rows.length > 0 && (
               <div className="flex gap-3 shrink-0">
                 <SummaryCard label="Produtos com necessidade" value={rows.length} color="amber" />
-                <SummaryCard label="Total unidades pendentes" value={totalPendente} color="red" />
+                <SummaryCard
+                  label="Total unidades pendentes"
+                  value={Math.round(totalPendente * 1000) / 1000}
+                  color="red"
+                />
               </div>
             )}
 
@@ -292,49 +338,35 @@ export default function NecessidadeCompra() {
                       : `${visibleRows.length} de ${filteredRows.length} produto(s) com necessidade`}
                   </div>
                   <div className="overflow-auto flex-1" onScroll={handleScroll}>
-                    <Table className="min-w-[1750px] w-full table-fixed">
+                    <Table className="min-w-[1050px] w-full table-fixed">
                       <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                         <TableRow className="h-11">
                           <TableHead className="w-[40px] pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            <span className="sr-only">Selecionar</span>
+                            <Checkbox
+                              checked={todosFiltradosSelecionados}
+                              onCheckedChange={() => selecionarTodosFiltrados()}
+                              title="Selecionar todos os itens filtrados (mesmo fornecedor)"
+                            />
                           </TableHead>
                           <TableHead className="w-[100px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                             Código
                           </TableHead>
-                          <TableHead className="w-[220px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                          <TableHead className="w-[280px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                             Produto
                           </TableHead>
-                          <TableHead className="w-[120px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                          <TableHead className="w-[150px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                             Marca
                           </TableHead>
-                          <TableHead className="w-[150px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Fornecedor
-                          </TableHead>
-                          <TableHead className="w-[90px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Física
+                          <TableHead className="w-[100px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                            Estoque
                           </TableHead>
                           <TableHead className="w-[110px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Comprometida
-                          </TableHead>
-                          <TableHead className="w-[100px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                             Disponível
                           </TableHead>
                           <TableHead className="w-[110px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Necessidade
-                          </TableHead>
-                          <TableHead className="w-[100px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                             Pendente
                           </TableHead>
-                          <TableHead className="w-[160px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Empresa que comprou
-                          </TableHead>
-                          <TableHead className="w-[130px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Status do pedido
-                          </TableHead>
-                          <TableHead className="w-[130px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
-                            Entrega prevista
-                          </TableHead>
-                          <TableHead className="w-[90px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                          <TableHead className="w-[100px] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                             Projetos
                           </TableHead>
                           <TableHead className="w-[100px] pr-4 sm:pr-6 text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
@@ -345,7 +377,7 @@ export default function NecessidadeCompra() {
                       <TableBody>
                         {loading ? (
                           <TableRow>
-                            <TableCell colSpan={15} className="h-32 text-center">
+                            <TableCell colSpan={9} className="h-32 text-center">
                               <div className="flex flex-col items-center gap-2">
                                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                                 <span className="text-xs text-slate-500">Carregando...</span>
@@ -354,7 +386,7 @@ export default function NecessidadeCompra() {
                           </TableRow>
                         ) : visibleRows.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={15} className="h-40 text-center">
+                            <TableCell colSpan={9} className="h-40 text-center">
                               <div className="flex flex-col items-center text-slate-400">
                                 <ShoppingCart className="w-10 h-10 mb-3 text-slate-300" />
                                 <p className="text-slate-600 font-medium">
@@ -378,7 +410,7 @@ export default function NecessidadeCompra() {
                                 key={`${r.produto_id}-detalhe`}
                                 className="hover:bg-transparent"
                               >
-                                <TableCell colSpan={15} className="p-0">
+                                <TableCell colSpan={9} className="p-0">
                                   <NecessidadeCompraDetalhe produtoId={r.produto_id} />
                                 </TableCell>
                               </TableRow>
@@ -424,17 +456,9 @@ export default function NecessidadeCompra() {
                                     {r.marca_nome || '-'}
                                   </span>
                                 </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <span className="text-sm text-slate-600 line-clamp-1">
-                                    {r.fornecedor_nome || '-'}
-                                  </span>
-                                </TableCell>
                                 <TableCell className="text-right align-middle py-2">
-                                  <span className="text-sm text-slate-600">{r.qtd_fisica}</span>
-                                </TableCell>
-                                <TableCell className="text-right align-middle py-2">
-                                  <span className="text-sm text-amber-700 font-medium">
-                                    {r.qtd_comprometida}
+                                  <span className="text-sm text-slate-600">
+                                    {formatQty(r.qtd_fisica)}
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right align-middle py-2">
@@ -446,45 +470,15 @@ export default function NecessidadeCompra() {
                                         : 'text-slate-600',
                                     )}
                                   >
-                                    {r.qtd_disponivel}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-right align-middle py-2">
-                                  <span className="text-sm text-slate-500">
-                                    {r.necessidade_compra}
+                                    {formatQty(r.qtd_disponivel)}
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right align-middle py-2">
                                   <span className="inline-flex items-center gap-1 justify-end">
                                     <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
                                     <span className="font-bold text-red-600 text-sm">
-                                      {r.pendente}
+                                      {formatQty(r.pendente)}
                                     </span>
-                                  </span>
-                                </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <span className="text-sm text-slate-600 line-clamp-1">
-                                    {r.qtd_pedidos_abertos === 0
-                                      ? '-'
-                                      : r.qtd_pedidos_abertos === 1
-                                        ? '1 pedido'
-                                        : `${r.qtd_pedidos_abertos} pedidos`}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <span className="text-sm text-slate-600 line-clamp-1">
-                                    {r.status_mais_critico
-                                      ? traduzirStatusPedidoCompra(r.status_mais_critico)
-                                      : '-'}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <span className="text-sm text-slate-600">
-                                    {r.proxima_data_prevista_entrega
-                                      ? new Date(
-                                          r.proxima_data_prevista_entrega,
-                                        ).toLocaleDateString('pt-BR')
-                                      : '-'}
                                   </span>
                                 </TableCell>
                                 <TableCell
@@ -579,6 +573,12 @@ export default function NecessidadeCompra() {
         <TabsContent value="item" className="flex-1 min-h-0 mt-0">
           <div className="flex flex-col h-full min-h-0">
             <NecessidadeCompraPorItemTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="devolucao" className="flex-1 min-h-0 mt-0">
+          <div className="flex flex-col h-full min-h-0">
+            <DevolucaoEstoqueTab />
           </div>
         </TabsContent>
       </Tabs>
