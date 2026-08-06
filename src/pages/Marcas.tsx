@@ -10,7 +10,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, X, RefreshCw, Tags, Pencil, Loader2, Check, Sparkles } from 'lucide-react'
+import {
+  Search,
+  X,
+  RefreshCw,
+  Tags,
+  Pencil,
+  Loader2,
+  Check,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import {
@@ -25,6 +36,9 @@ import {
   ModalRevisarSugestoesFornecedor,
   type SugestaoRevisao,
 } from '@/components/marcas/ModalRevisarSugestoesFornecedor'
+// SPEC-066 Frente B: painel de fornecedores múltiplos por marca
+// (contatos.marca_id) — distinto do campo único legado marcas.fornecedor_id.
+import { FornecedoresDaMarcaPanel } from '@/components/marcas/FornecedoresDaMarcaPanel'
 
 // SPEC-034: limiares de exibição/lote da sugestão automática de fornecedor
 // por nome (RPC sugerir_fornecedores_marcas). Constantes no frontend,
@@ -54,6 +68,9 @@ export default function Marcas() {
   // visual (Input + lista suspensa) já usado em ModalRegistrarCompra.tsx,
   // sem introduzir um componente de combobox novo (SPEC-033).
   const [editingId, setEditingId] = useState<string | null>(null)
+  // SPEC-066 Frente B: expande/colapsa o painel de fornecedores múltiplos
+  // (contatos.marca_id) desta marca — independente da edição legada acima.
+  const [expandedFornecedoresId, setExpandedFornecedoresId] = useState<string | null>(null)
   const [fornecedorSearch, setFornecedorSearch] = useState('')
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [loadingFornecedores, setLoadingFornecedores] = useState(false)
@@ -401,10 +418,28 @@ export default function Marcas() {
                   const sugestao = sugestoes.get(m.id)
                   const sugestaoExibivel =
                     sugestao && sugestao.score >= LIMIAR_SUGESTAO_MINIMA ? sugestao : null
+                  const expandido = expandedFornecedoresId === m.id
                   return (
+                    <>
                     <TableRow key={m.id} className="h-14 border-b border-slate-50">
                       <TableCell className="pl-4 sm:pl-6 align-middle py-2">
-                        <p className="text-sm font-medium text-slate-900 line-clamp-1">{m.nome}</p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            title="Ver todos os fornecedores desta marca"
+                            className="text-slate-400 hover:text-slate-700 shrink-0"
+                            onClick={() =>
+                              setExpandedFornecedoresId((prev) => (prev === m.id ? null : m.id))
+                            }
+                          >
+                            {expandido ? (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <p className="text-sm font-medium text-slate-900 line-clamp-1">{m.nome}</p>
+                        </div>
                       </TableCell>
                       <TableCell className="align-middle py-2">
                         {isEditing ? (
@@ -536,6 +571,14 @@ export default function Marcas() {
                         )}
                       </TableCell>
                     </TableRow>
+                    {expandido && (
+                      <TableRow key={`${m.id}-fornecedores`} className="hover:bg-transparent">
+                        <TableCell colSpan={4} className="p-0">
+                          <FornecedoresDaMarcaPanel marcaId={m.id} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </>
                   )
                 })
               )}

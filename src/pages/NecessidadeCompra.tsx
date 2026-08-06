@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronRight,
   PackageCheck,
+  ClipboardList,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,10 @@ import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDet
 import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
 import { ModalPedidoLote } from '@/components/compra/ModalPedidoLote'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
+// SPEC-066 Frente F: "Solicitar Compra" — caminho opcional que passa por
+// aprovação em "Solicitações" antes de virar pedido (coexiste com
+// "Comprar"/Pedido em Lote diretos, não os substitui).
+import { SolicitarCompraDialog } from '@/components/compra/SolicitarCompraDialog'
 // SPEC-040: aba nova "Por Item de Orçamento" (Fluxo B) — componente próprio,
 // não altera nada do Fluxo A abaixo.
 import { NecessidadeCompraPorItemTab } from '@/components/compra/NecessidadeCompraPorItemTab'
@@ -72,6 +77,10 @@ export default function NecessidadeCompra() {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
   const [modalOpen, setModalOpen] = useState(false)
   const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
+  const [produtoParaSolicitar, setProdutoParaSolicitar] = useState<NecessidadeCompraRow | null>(
+    null,
+  )
+  const [solicitarDialogOpen, setSolicitarDialogOpen] = useState(false)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
 
   // SPEC-030 Parte 2: filtro por marca + seleção múltipla para Pedido em Lote
@@ -512,18 +521,32 @@ export default function NecessidadeCompra() {
                                   className="pr-4 sm:pr-6 text-right align-middle py-2"
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                                    onClick={() => {
-                                      setProdutoParaCompra(r)
-                                      setModalOpen(true)
-                                    }}
-                                  >
-                                    <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-                                    Comprar
-                                  </Button>
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-xs text-slate-500 hover:bg-slate-100"
+                                      title="Solicitar Compra (passa por aprovação em Solicitações)"
+                                      onClick={() => {
+                                        setProdutoParaSolicitar(r)
+                                        setSolicitarDialogOpen(true)
+                                      }}
+                                    >
+                                      <ClipboardList className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                      onClick={() => {
+                                        setProdutoParaCompra(r)
+                                        setModalOpen(true)
+                                      }}
+                                    >
+                                      <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+                                      Comprar
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>,
                               ...(detailRow ? [detailRow] : []),
@@ -554,6 +577,13 @@ export default function NecessidadeCompra() {
                 setModalOpen(false)
                 loadData()
               }}
+            />
+
+            <SolicitarCompraDialog
+              open={solicitarDialogOpen}
+              onOpenChange={setSolicitarDialogOpen}
+              produto={produtoParaSolicitar}
+              onSuccess={loadData}
             />
 
             <ModalPedidoLote

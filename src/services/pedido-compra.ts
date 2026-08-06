@@ -5,6 +5,17 @@ export interface Fornecedor {
   nome: string
 }
 
+export interface Empresa {
+  id: string
+  nome: string
+}
+
+export async function getEmpresas(): Promise<Empresa[]> {
+  const { data, error } = await (supabase as any).from('empresas').select('id, nome').order('nome')
+  if (error) throw error
+  return (data ?? []) as Empresa[]
+}
+
 export interface CriarPedidoInput {
   produto_id: string
   fornecedor_id: string
@@ -22,6 +33,11 @@ export interface CriarPedidoInput {
   valor_icms?: number
   valor_ipi?: number
   valor_st?: number
+  // SPEC-057 (reunião 04/08/2026): empresa que está comprando precisa ser
+  // escolhida por pedido, não fixa por usuário. perfil é só rótulo
+  // Ribeirão/São Paulo (SPEC-064).
+  empresa_id: string
+  perfil?: string
 }
 
 export interface CriarPedidoResult {
@@ -46,6 +62,8 @@ export async function criarPedidoCompra(input: CriarPedidoInput): Promise<CriarP
     p_valor_icms: input.valor_icms ?? null,
     p_valor_ipi: input.valor_ipi ?? null,
     p_valor_st: input.valor_st ?? null,
+    p_empresa_id: input.empresa_id,
+    p_perfil: input.perfil ?? null,
   })
   if (error) throw error
   return data as CriarPedidoResult
@@ -81,6 +99,9 @@ export interface CriarPedidoLoteInput {
   data_prevista_entrega?: string
   condicoes_pagamento?: string
   observacao?: string
+  // SPEC-057: empresa por pedido (ver CriarPedidoInput).
+  empresa_id?: string
+  perfil?: string
 }
 
 export interface CriarPedidoLoteResult {
@@ -108,9 +129,27 @@ export async function criarPedidoCompraLote(
     p_data_prevista_entrega: input.data_prevista_entrega ?? null,
     p_condicoes_pagamento: input.condicoes_pagamento ?? null,
     p_observacao: input.observacao ?? null,
+    p_empresa_id: input.empresa_id ?? null,
+    p_perfil: input.perfil ?? null,
   })
   if (error) throw error
   return data as CriarPedidoLoteResult
+}
+
+// -----------------------------------------------------------------------
+// SPEC-060 — cancelar pedido de compra
+// -----------------------------------------------------------------------
+
+// Pedido em rascunho/aprovado/enviado pode ser cancelado pela tela;
+// recebido/parcialmente_recebido/já cancelado mostram erro claro.
+export const STATUS_PEDIDO_COMPRA_CANCELAVEL = ['rascunho', 'aprovado', 'enviado']
+
+export async function cancelarPedidoCompra(pedidoId: string, motivo?: string): Promise<void> {
+  const { error } = await (supabase as any).rpc('cancelar_pedido_compra', {
+    p_pedido_id: pedidoId,
+    p_motivo: motivo?.trim() || null,
+  })
+  if (error) throw error
 }
 
 // -----------------------------------------------------------------------
@@ -122,6 +161,11 @@ export interface ProdutoImpostos {
   icmsEntradaPerc: number | null
   ipiEntradaPerc: number | null
   porcStPerc: number | null
+  // SPEC-066 Frente C: "caixa fechada" — observação e quantidade mínima
+  // de produto_fornecedores, exibidas só aqui (Fechar Pedido em Lote),
+  // por decisão explícita da Débora (não na grid principal).
+  observacaoFornecedor: string | null
+  qtdMinima: number | null
 }
 
 /**
@@ -144,15 +188,19 @@ export async function getProdutoImpostos(
   if (error) throw error
 
   let custoOverride: number | null = null
+  let observacaoFornecedor: string | null = null
+  let qtdMinima: number | null = null
   if (fornecedorId) {
     const { data: pf } = await (supabase as any)
       .from('produto_fornecedores')
-      .select('custo_unitario')
+      .select('custo_unitario, observacao, qtd_minima')
       .eq('produto_id', produtoId)
       .eq('fornecedor_id', fornecedorId)
       .eq('ativo', true)
       .maybeSingle()
     custoOverride = pf?.custo_unitario ?? null
+    observacaoFornecedor = pf?.observacao ?? null
+    qtdMinima = pf?.qtd_minima ?? null
   }
 
   return {
@@ -160,6 +208,8 @@ export async function getProdutoImpostos(
     icmsEntradaPerc: produto?.icms_entrada ?? null,
     ipiEntradaPerc: produto?.ipi_entrada ?? null,
     porcStPerc: produto?.porc_st ?? null,
+    observacaoFornecedor,
+    qtdMinima,
   }
 }
 
@@ -182,15 +232,19 @@ export async function getProdutoImpostosBulk(
   if (error) throw error
 
   const overrides = new Map<string, number>()
+  const observacoes = new Map<string, string>()
+  const qtdsMinimas = new Map<string, number>()
   if (fornecedorId) {
     const { data: pfs } = await (supabase as any)
       .from('produto_fornecedores')
-      .select('produto_id, custo_unitario')
+      .select('produto_id, custo_unitario, observacao, qtd_minima')
       .eq('fornecedor_id', fornecedorId)
       .eq('ativo', true)
       .in('produto_id', produtoIds)
     ;(pfs ?? []).forEach((pf: any) => {
       if (pf.custo_unitario != null) overrides.set(pf.produto_id, pf.custo_unitario)
+      if (pf.observacao) observacoes.set(pf.produto_id, pf.observacao)
+      if (pf.qtd_minima != null) qtdsMinimas.set(pf.produto_id, pf.qtd_minima)
     })
   }
 
@@ -200,10 +254,49 @@ export async function getProdutoImpostosBulk(
       icmsEntradaPerc: p.icms_entrada ?? null,
       ipiEntradaPerc: p.ipi_entrada ?? null,
       porcStPerc: p.porc_st ?? null,
+      observacaoFornecedor: observacoes.get(p.id) ?? null,
+      qtdMinima: qtdsMinimas.get(p.id) ?? null,
     })
   })
 
   return result
+}
+
+/**
+ * SPEC-066 Frente C: upsert de observação/qtd_minima ("caixa fechada")
+ * para o par produto+fornecedor. Chamado a partir do Fechar Pedido em
+ * Lote (único lugar onde essa informação é editável, por decisão da
+ * Débora). Não mexe em custo_unitario (mantém o que já existir).
+ */
+export async function upsertObservacaoProdutoFornecedor(
+  produtoId: string,
+  fornecedorId: string,
+  observacao: string | null,
+  qtdMinima: number | null,
+): Promise<void> {
+  const { data: existing } = await (supabase as any)
+    .from('produto_fornecedores')
+    .select('id')
+    .eq('produto_id', produtoId)
+    .eq('fornecedor_id', fornecedorId)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await (supabase as any)
+      .from('produto_fornecedores')
+      .update({ observacao, qtd_minima: qtdMinima })
+      .eq('id', existing.id)
+    if (error) throw error
+  } else {
+    const { error } = await (supabase as any).from('produto_fornecedores').insert({
+      produto_id: produtoId,
+      fornecedor_id: fornecedorId,
+      observacao,
+      qtd_minima: qtdMinima,
+      ativo: true,
+    })
+    if (error) throw error
+  }
 }
 
 // -----------------------------------------------------------------------

@@ -16,7 +16,7 @@ const navItems = [
   { to: '/solicitacoes', label: 'Solicitações', icon: FileText },
   { to: '/cotacoes', label: 'Cotações', icon: Quote },
   { to: '/pedidos', label: 'Pedidos', icon: ShoppingCart },
-  { to: '/recebimento', label: 'Recebimento', icon: PackageCheck },
+  { to: '/recebimento', label: 'Entrada de Nota Fiscal', icon: PackageCheck },
   { to: '/marcas', label: 'Marcas', icon: Tags },
 ]
 

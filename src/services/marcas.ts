@@ -101,6 +101,43 @@ export async function getSugestoesFornecedorMarca(): Promise<Map<string, Sugesta
   return mapa
 }
 
+// SPEC-066 Frente B: lista de TODOS os fornecedores (contatos.tipo =
+// 'fornecedor') vinculados a esta marca via contatos.marca_id — a
+// direção correta (1 fornecedor = 1 marca; 1 marca = N fornecedores),
+// distinta de marcas.fornecedor_id (mantida por ora, P-B1, mas só
+// representa 1 fornecedor "padrão" legado).
+export interface FornecedorDaMarca {
+  id: string
+  nome: string
+}
+
+export async function getFornecedoresDaMarca(marcaId: string): Promise<FornecedorDaMarca[]> {
+  const { data, error } = await (supabase as any)
+    .from('contatos')
+    .select('id, nome')
+    .eq('marca_id', marcaId)
+    .eq('tipo', 'fornecedor')
+    .order('nome')
+  if (error) throw error
+  return (data ?? []) as FornecedorDaMarca[]
+}
+
+export async function vincularFornecedorAMarca(fornecedorId: string, marcaId: string): Promise<void> {
+  const { error } = await (supabase as any)
+    .from('contatos')
+    .update({ marca_id: marcaId })
+    .eq('id', fornecedorId)
+  if (error) throw error
+}
+
+export async function desvincularFornecedorDaMarca(fornecedorId: string): Promise<void> {
+  const { error } = await (supabase as any)
+    .from('contatos')
+    .update({ marca_id: null })
+    .eq('id', fornecedorId)
+  if (error) throw error
+}
+
 export async function atualizarFornecedorMarca(
   marcaId: string,
   fornecedorId: string | null,

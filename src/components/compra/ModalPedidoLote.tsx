@@ -11,6 +11,14 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -19,13 +27,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Loader2, PackageCheck } from 'lucide-react'
+import { Loader2, PackageCheck, StickyNote, Pencil } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import {
   criarPedidoCompraLote,
   getProdutoImpostosBulk,
   gerarParcelasPedidoCompra,
+  upsertObservacaoProdutoFornecedor,
+  getEmpresas,
+  type Empresa,
 } from '@/services/pedido-compra'
 import type { NecessidadeCompraRow } from '@/services/necessidade-compra'
 
@@ -53,6 +64,9 @@ interface LinhaLote {
   qtdFisica: number
   qtdComprometida: number
   qtdDisponivel: number
+  // SPEC-066 Frente C: "caixa fechada" — informativo, editável só aqui.
+  observacaoFornecedor: string | null
+  qtdMinima: number | null
 }
 
 function round4(n: number) {
@@ -76,9 +90,20 @@ export function ModalPedidoLote({
   const [gerarParcelas, setGerarParcelas] = useState(false)
   const [observacao, setObservacao] = useState('')
   const [loading, setLoading] = useState(false)
+  // SPEC-057 (reuniao 04/08/2026): empresa precisa ser escolhida por
+  // pedido, nao fica mais implicita (nenhum usuario tem
+  // usuarios.empresa_id preenchido). Perfil e so rotulo (SPEC-064).
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
+  const [empresaId, setEmpresaId] = useState('')
+  const [perfil, setPerfil] = useState('')
 
   useEffect(() => {
     if (!open) return
+    getEmpresas()
+      .then(setEmpresas)
+      .catch(() => setEmpresas([]))
+    setEmpresaId('')
+    setPerfil('')
     setLinhas(
       itens.map((it) => ({
         produto_id: it.produto_id,
@@ -92,6 +117,8 @@ export function ModalPedidoLote({
         qtdFisica: it.qtd_fisica,
         qtdComprometida: it.qtd_comprometida,
         qtdDisponivel: it.qtd_disponivel,
+        observacaoFornecedor: null,
+        qtdMinima: null,
       })),
     )
     setNumero('')
@@ -123,6 +150,8 @@ export function ModalPedidoLote({
               valorIcms: String(icms),
               valorIpi: String(ipi),
               valorSt: String(st),
+              observacaoFornecedor: dados.observacaoFornecedor,
+              qtdMinima: dados.qtdMinima,
             }
           }),
         )
@@ -140,6 +169,39 @@ export function ModalPedidoLote({
     setLinhas((prev) =>
       prev.map((l) => (l.produto_id === produtoId ? { ...l, [campo]: valor } : l)),
     )
+  }
+
+  // SPEC-066 Frente C: salva observação/qtd mínima de caixa fechada para
+  // o par produto+fornecedor deste pedido — único lugar do sistema onde
+  // essa informação é editável.
+  const [salvandoObs, setSalvandoObs] = useState<string | null>(null)
+  async function salvarObservacao(produtoId: string, observacao: string, qtdMinima: string) {
+    setSalvandoObs(produtoId)
+    try {
+      const qtdMinimaNum = qtdMinima.trim() ? parseFloat(qtdMinima) : null
+      await upsertObservacaoProdutoFornecedor(
+        produtoId,
+        fornecedorId,
+        observacao.trim() || null,
+        qtdMinimaNum,
+      )
+      setLinhas((prev) =>
+        prev.map((l) =>
+          l.produto_id === produtoId
+            ? { ...l, observacaoFornecedor: observacao.trim() || null, qtdMinima: qtdMinimaNum }
+            : l,
+        ),
+      )
+      toast({ title: 'Observação salva' })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar observação',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSalvandoObs(null)
+    }
   }
 
   const linhasValidas = linhas.map((l) => {
@@ -161,7 +223,7 @@ export function ModalPedidoLote({
   const todasLinhasValidas =
     linhasValidas.length > 0 && linhasValidas.every((l) => l.qtd > 0 && l.custo > 0)
 
-  const canSubmit = todasLinhasValidas && !loading
+  const canSubmit = todasLinhasValidas && !!empresaId && !loading
 
   const totalEstimado = linhasValidas.reduce(
     (s, l) => (l.qtd > 0 && l.custo > 0 ? s + l.qtd * l.custo : s),
@@ -188,6 +250,8 @@ export function ModalPedidoLote({
         data_prevista_entrega: dataPrevista || undefined,
         condicoes_pagamento: condicoesPagamento.trim() || undefined,
         observacao: observacao.trim() || undefined,
+        empresa_id: empresaId,
+        perfil: perfil || undefined,
       })
 
       if (gerarParcelas && condicoesPagamento.trim()) {
@@ -271,6 +335,11 @@ export function ModalPedidoLote({
                           </span>
                         </span>
                       </p>
+                      <ObservacaoCaixaFechada
+                        linha={l}
+                        salvando={salvandoObs === l.produto_id}
+                        onSalvar={(obs, qtd) => salvarObservacao(l.produto_id, obs, qtd)}
+                      />
                     </TableCell>
                     <TableCell className="text-right">
                       <Input
@@ -343,6 +412,37 @@ export function ModalPedidoLote({
               </span>
             </p>
           )}
+
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
+              Empresa <span className="text-red-500">*</span>
+            </Label>
+            <Select value={empresaId} onValueChange={setEmpresaId}>
+              <SelectTrigger className="h-11 text-sm">
+                <SelectValue placeholder="Selecione a empresa que está comprando..." />
+              </SelectTrigger>
+              <SelectContent>
+                {empresas.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">Perfil (opcional)</Label>
+            <Select value={perfil} onValueChange={setPerfil}>
+              <SelectTrigger className="h-11 text-sm">
+                <SelectValue placeholder="Não informado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ribeirao">Ribeirão</SelectItem>
+                <SelectItem value="sao_paulo">São Paulo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
@@ -424,5 +524,85 @@ export function ModalPedidoLote({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// SPEC-066 Frente C: badge de "caixa fechada" (observação/qtd mínima de
+// produto_fornecedores) com edição inline via popover. Único lugar do
+// sistema onde essa informação aparece e é editável, por decisão
+// explícita da Débora (não na grid principal de Necessidade de Compra).
+function ObservacaoCaixaFechada({
+  linha,
+  salvando,
+  onSalvar,
+}: {
+  linha: LinhaLote
+  salvando: boolean
+  onSalvar: (observacao: string, qtdMinima: string) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const [obs, setObs] = useState('')
+  const [qtd, setQtd] = useState('')
+
+  function abrir() {
+    setObs(linha.observacaoFornecedor ?? '')
+    setQtd(linha.qtdMinima != null ? String(linha.qtdMinima) : '')
+    setAberto(true)
+  }
+
+  function salvar() {
+    onSalvar(obs, qtd)
+    setAberto(false)
+  }
+
+  const temInfo = linha.observacaoFornecedor || linha.qtdMinima != null
+
+  return (
+    <Popover open={aberto} onOpenChange={(v) => (v ? abrir() : setAberto(false))}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'mt-1 inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors',
+            temInfo
+              ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+              : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100',
+          )}
+        >
+          {temInfo ? <StickyNote className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
+          {temInfo
+            ? linha.observacaoFornecedor || `Caixa fechada: ${linha.qtdMinima}`
+            : 'Adicionar observação'}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 space-y-3" align="start">
+        <div className="space-y-1">
+          <Label className="text-xs">Quantidade mínima (caixa fechada)</Label>
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            className="h-8 text-sm"
+            value={qtd}
+            onChange={(e) => setQtd(e.target.value)}
+            placeholder="ex: 12"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Observação</Label>
+          <Textarea
+            className="text-sm resize-none"
+            rows={2}
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+            placeholder="ex: só vende em caixa fechada de 12 unidades"
+          />
+        </div>
+        <Button size="sm" className="w-full h-8" onClick={salvar} disabled={salvando}>
+          {salvando ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : null}
+          Salvar
+        </Button>
+      </PopoverContent>
+    </Popover>
   )
 }
