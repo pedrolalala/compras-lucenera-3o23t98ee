@@ -18,7 +18,13 @@ const BATCH_SIZE = 500
 export async function getMarcasComFornecedor(search?: string): Promise<MarcaComFornecedor[]> {
   let query = (supabase as any)
     .from('marcas')
-    .select('id, nome, fornecedor_id, fornecedor:contatos(nome)')
+    // SPEC-066: contatos.marca_id (nova FK) criou um segundo caminho de
+    // relacionamento entre marcas<->contatos, então o PostgREST não
+    // consegue mais inferir sozinho qual FK usar para o embed — precisa
+    // apontar explicitamente marcas_fornecedor_id_fkey (a FK antiga,
+    // marcas.fornecedor_id -> contatos.id), senão dá erro de "embed
+    // ambíguo" e a query inteira falha.
+    .select('id, nome, fornecedor_id, fornecedor:contatos!marcas_fornecedor_id_fkey(nome)')
     .order('nome', { ascending: true })
 
   if (search?.trim()) {
