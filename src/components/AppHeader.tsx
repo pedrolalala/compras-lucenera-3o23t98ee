@@ -36,7 +36,10 @@ export function AppHeader() {
           asChild
           className="text-slate-600 hover:text-slate-900 hover:bg-slate-100"
         >
-          <a href="https://central-lucenera.goskip.app/" title="Voltar para a Central Lucenera">
+          <a
+            href="https://central-lucenera-dashboard-1c9ba.goskip.app/dashboard"
+            title="Voltar para a Central Lucenera"
+          >
             <Building2 className="w-4 h-4 mr-1.5" />
             <span className="hidden sm:inline">Central</span>
           </a>
