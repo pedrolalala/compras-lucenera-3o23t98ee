@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { ShoppingCart, LogOut, LogIn, Home } from 'lucide-react'
+import { ShoppingCart, LogOut, LogIn, Home, Building2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useAuth } from '@/hooks/use-auth'
@@ -30,6 +30,18 @@ export function AppHeader() {
       </div>
 
       <nav className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          asChild
+          className="text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+        >
+          <a href="https://central-lucenera.goskip.app/" title="Voltar para a Central Lucenera">
+            <Building2 className="w-4 h-4 mr-1.5" />
+            <span className="hidden sm:inline">Central</span>
+          </a>
+        </Button>
+
         <Button
           variant="ghost"
           size="sm"
