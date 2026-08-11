@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
-import { Loader2, X, Search, Plus } from 'lucide-react'
+import { Loader2, X, Search, Plus, UserPlus } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import {
   getFornecedoresDaMarca,
@@ -9,6 +9,8 @@ import {
   type FornecedorDaMarca,
 } from '@/services/marcas'
 import { getFornecedores, type Fornecedor } from '@/services/pedido-compra'
+import { FornecedorModal } from '@/components/fornecedores/FornecedorModal'
+import type { Fornecedor as FornecedorCompleto } from '@/services/fornecedores'
 
 // SPEC-066 Frente B: painel expansível listando TODOS os fornecedores
 // (contatos.marca_id) vinculados a esta marca — 1 marca pode ter vários
@@ -24,6 +26,7 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
   const [busca, setBusca] = useState('')
   const [resultados, setResultados] = useState<Fornecedor[]>([])
   const [salvandoId, setSalvandoId] = useState<string | null>(null)
+  const [modalAberto, setModalAberto] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function carregar() {
@@ -82,6 +85,11 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
     } finally {
       setSalvandoId(null)
     }
+  }
+
+  async function aoCriarFornecedor(f: FornecedorCompleto) {
+    setModalAberto(false)
+    await adicionar({ id: f.id, nome: f.nome })
   }
 
   async function remover(f: FornecedorDaMarca) {
@@ -143,31 +151,51 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
         />
-        {(buscando || resultados.length > 0) && busca.trim() && (
-          <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-48">
+        {(buscando || resultados.length > 0 || busca.trim()) && busca.trim() && (
+          <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
             {buscando ? (
               <div className="flex items-center justify-center py-3">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
               </div>
             ) : (
-              resultados.map((f) => (
+              <>
+                {resultados.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      adicionar(f)
+                    }}
+                  >
+                    <Plus className="w-3 h-3 text-emerald-600" />
+                    {f.nome}
+                  </button>
+                ))}
                 <button
-                  key={f.id}
                   type="button"
-                  className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
+                  className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm hover:bg-emerald-50 text-emerald-700 font-medium"
                   onMouseDown={(e) => {
                     e.preventDefault()
-                    adicionar(f)
+                    setModalAberto(true)
                   }}
                 >
-                  <Plus className="w-3 h-3 text-emerald-600" />
-                  {f.nome}
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Cadastrar novo fornecedor "{busca.trim()}"
                 </button>
-              ))
+              </>
             )}
           </div>
         )}
       </div>
+
+      <FornecedorModal
+        open={modalAberto}
+        onOpenChange={setModalAberto}
+        nomeInicial={busca.trim()}
+        onSuccess={aoCriarFornecedor}
+      />
     </div>
   )
 }
