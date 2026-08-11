@@ -155,7 +155,8 @@ export default function PainelDebora() {
                 rows.map((r) => (
                   <TableRow
                     key={r.projeto_item_id}
-                    className="h-14 border-b border-slate-50 hover:bg-slate-50/80"
+                    onDoubleClick={() => openDialog(r)}
+                    className="h-14 border-b border-slate-50 hover:bg-slate-50/80 cursor-pointer"
                   >
                     <TableCell className="pl-4 py-2">
                       <p className="text-sm font-medium text-slate-900 line-clamp-1">{r.produto}</p>

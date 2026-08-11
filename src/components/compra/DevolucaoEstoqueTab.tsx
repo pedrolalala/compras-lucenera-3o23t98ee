@@ -200,7 +200,8 @@ export function DevolucaoEstoqueTab() {
                 visibleRows.map((r) => (
                   <TableRow
                     key={r.projeto_item_id}
-                    className="transition-colors h-14 border-b border-slate-50 hover:bg-slate-50/80"
+                    onDoubleClick={() => abrirDevolucao(r)}
+                    className="transition-colors h-14 border-b border-slate-50 hover:bg-slate-50/80 cursor-pointer"
                   >
                     <TableCell className="pl-4 sm:pl-6 align-middle py-2">
                       <span className="text-sm text-slate-600 line-clamp-1">
