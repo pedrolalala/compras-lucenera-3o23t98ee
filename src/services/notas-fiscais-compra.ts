@@ -70,7 +70,13 @@ export async function uploadArquivoNotaFiscalCompra(file: File, pedidoId: string
 }
 
 export interface CriarNotaFiscalCompraInput {
-  pedido_compra_id: string
+  // SPEC-088: entrada avulsa (sem pedido de compra) informa
+  // fornecedor_id/empresa_id direto em vez de pedido_compra_id — a tabela
+  // exige pedido_compra_id OU fornecedor_id preenchido (CHECK constraint).
+  pedido_compra_id?: string | null
+  fornecedor_id?: string | null
+  empresa_id?: string | null
+  produto_id?: string | null
   numero_nf: string
   data_emissao?: string | null
   valor?: number | null
@@ -81,13 +87,21 @@ export interface CriarNotaFiscalCompraInput {
 export async function criarNotaFiscalCompra(input: CriarNotaFiscalCompraInput): Promise<void> {
   let arquivoUrl: string | null = null
   if (input.arquivo) {
-    arquivoUrl = await uploadArquivoNotaFiscalCompra(input.arquivo, input.pedido_compra_id)
+    // upload usa o pedido como pasta quando existe; entrada avulsa usa
+    // "avulsa" como pasta (arquivo isolado, sem pedido pra agrupar).
+    arquivoUrl = await uploadArquivoNotaFiscalCompra(
+      input.arquivo,
+      input.pedido_compra_id || 'avulsa',
+    )
   }
 
   const { data: userData } = await supabase.auth.getUser()
 
   const { error } = await (supabase as any).from('notas_fiscais_compra').insert({
-    pedido_compra_id: input.pedido_compra_id,
+    pedido_compra_id: input.pedido_compra_id || null,
+    fornecedor_id: input.fornecedor_id || null,
+    empresa_id: input.empresa_id || null,
+    produto_id: input.produto_id || null,
     numero_nf: input.numero_nf.trim(),
     data_emissao: input.data_emissao || null,
     valor: input.valor ?? null,
@@ -109,13 +123,16 @@ export interface NotaFiscalCompraRow {
   pedido_numero: string
   fornecedor_nome: string
   empresa_nome: string | null
+  // SPEC-088: true quando a entrada não tem pedido de compra vinculado
+  // (avulsa) — usado pra sinalizar na listagem.
+  avulsa: boolean
 }
 
 export async function getNotasFiscaisCompra(searchTerm?: string): Promise<NotaFiscalCompraRow[]> {
   let query = (supabase as any)
     .from('notas_fiscais_compra')
     .select(
-      '*, pedidos_compra(numero, empresas(nome), contatos!fornecedor_id(nome))',
+      '*, pedidos_compra(numero, empresas(nome), contatos!fornecedor_id(nome)), fornecedor:contatos!fornecedor_id(nome), empresa:empresas!empresa_id(nome)',
     )
     .order('criado_em', { ascending: false })
     .limit(200)
@@ -136,7 +153,27 @@ export async function getNotasFiscaisCompra(searchTerm?: string): Promise<NotaFi
     observacao: d.observacao,
     criado_em: d.criado_em,
     pedido_numero: d.pedidos_compra?.numero ?? '—',
-    fornecedor_nome: d.pedidos_compra?.contatos?.nome ?? '—',
-    empresa_nome: d.pedidos_compra?.empresas?.nome ?? null,
+    fornecedor_nome: d.pedidos_compra?.contatos?.nome ?? d.fornecedor?.nome ?? '—',
+    empresa_nome: d.pedidos_compra?.empresas?.nome ?? d.empresa?.nome ?? null,
+    avulsa: !d.pedido_compra_id,
   }))
+}
+
+// SPEC-088: busca leve de produto pra vínculo opcional na entrada avulsa —
+// a Débora pode deixar em branco e linkar depois editando a nota.
+export interface ProdutoBusca {
+  id: string
+  nome: string
+  codigo_produto: number | null
+}
+
+export async function buscarProdutosParaEntrada(termo: string): Promise<ProdutoBusca[]> {
+  if (!termo.trim()) return []
+  const { data, error } = await (supabase as any)
+    .from('produtos')
+    .select('id, nome, codigo_produto')
+    .or(`nome.ilike.%${termo.trim()}%,referencia.ilike.%${termo.trim()}%`)
+    .limit(20)
+  if (error) throw error
+  return (data ?? []) as ProdutoBusca[]
 }

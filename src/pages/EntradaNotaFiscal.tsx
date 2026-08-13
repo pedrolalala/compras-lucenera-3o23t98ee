@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -16,11 +17,14 @@ import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw } from 'l
 import { useToast } from '@/hooks/use-toast'
 import {
   buscarPedidoPorNumero,
+  buscarProdutosParaEntrada,
   criarNotaFiscalCompra,
   getNotasFiscaisCompra,
   type PedidoParaEntrada,
   type NotaFiscalCompraRow,
+  type ProdutoBusca,
 } from '@/services/notas-fiscais-compra'
+import { getFornecedores, getEmpresas, type Fornecedor, type Empresa } from '@/services/pedido-compra'
 
 function fmtBRL(n: number | null) {
   if (n == null) return '—'
@@ -36,10 +40,28 @@ function fmtDate(v: string | null) {
 export default function EntradaNotaFiscal() {
   const { toast } = useToast()
 
+  // SPEC-088: "pedido" é o fluxo original (localizar pedido de compra
+  // existente); "avulsa" é pra compras que chegaram fisicamente sem nunca
+  // ter passado por um pedido formal no sistema.
+  const [modo, setModo] = useState<'pedido' | 'avulsa'>('pedido')
+
   const [numeroPedido, setNumeroPedido] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [pedido, setPedido] = useState<PedidoParaEntrada | null>(null)
   const [naoEncontrado, setNaoEncontrado] = useState(false)
+
+  const [fornecedorBusca, setFornecedorBusca] = useState('')
+  const [fornecedorResultados, setFornecedorResultados] = useState<Fornecedor[]>([])
+  const [fornecedorSelecionado, setFornecedorSelecionado] = useState<Fornecedor | null>(null)
+  const [buscandoFornecedor, setBuscandoFornecedor] = useState(false)
+
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
+  const [empresaId, setEmpresaId] = useState('')
+
+  const [produtoBusca, setProdutoBusca] = useState('')
+  const [produtoResultados, setProdutoResultados] = useState<ProdutoBusca[]>([])
+  const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoBusca | null>(null)
+  const [buscandoProduto, setBuscandoProduto] = useState(false)
 
   const [numeroNf, setNumeroNf] = useState('')
   const [dataEmissao, setDataEmissao] = useState('')
@@ -66,6 +88,52 @@ export default function EntradaNotaFiscal() {
   useEffect(() => {
     carregarHistorico()
   }, [carregarHistorico])
+
+  useEffect(() => {
+    getEmpresas()
+      .then(setEmpresas)
+      .catch(() => {
+        // silencioso — select fica vazio, usuário percebe ao tentar salvar
+      })
+  }, [])
+
+  useEffect(() => {
+    if (modo !== 'avulsa' || !fornecedorBusca.trim()) {
+      setFornecedorResultados([])
+      return
+    }
+    const t = setTimeout(async () => {
+      setBuscandoFornecedor(true)
+      try {
+        const data = await getFornecedores(fornecedorBusca)
+        setFornecedorResultados(data)
+      } catch {
+        // silencioso
+      } finally {
+        setBuscandoFornecedor(false)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [modo, fornecedorBusca])
+
+  useEffect(() => {
+    if (modo !== 'avulsa' || !produtoBusca.trim()) {
+      setProdutoResultados([])
+      return
+    }
+    const t = setTimeout(async () => {
+      setBuscandoProduto(true)
+      try {
+        const data = await buscarProdutosParaEntrada(produtoBusca)
+        setProdutoResultados(data)
+      } catch {
+        // silencioso
+      } finally {
+        setBuscandoProduto(false)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [modo, produtoBusca])
 
   async function buscarPedido(e?: React.FormEvent) {
     e?.preventDefault()
@@ -95,6 +163,11 @@ export default function EntradaNotaFiscal() {
   function limparFormulario() {
     setPedido(null)
     setNumeroPedido('')
+    setFornecedorSelecionado(null)
+    setFornecedorBusca('')
+    setEmpresaId('')
+    setProdutoSelecionado(null)
+    setProdutoBusca('')
     setNumeroNf('')
     setDataEmissao('')
     setValor('')
@@ -102,13 +175,23 @@ export default function EntradaNotaFiscal() {
     setArquivo(null)
   }
 
+  function trocarModo(novo: 'pedido' | 'avulsa') {
+    setModo(novo)
+    limparFormulario()
+  }
+
+  const podeRegistrar = modo === 'pedido' ? !!pedido : !!fornecedorSelecionado
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!pedido || !numeroNf.trim()) return
+    if (!podeRegistrar || !numeroNf.trim()) return
     setSalvando(true)
     try {
       await criarNotaFiscalCompra({
-        pedido_compra_id: pedido.id,
+        pedido_compra_id: modo === 'pedido' ? pedido!.id : null,
+        fornecedor_id: modo === 'avulsa' ? fornecedorSelecionado!.id : null,
+        empresa_id: modo === 'avulsa' ? empresaId || null : null,
+        produto_id: modo === 'avulsa' ? produtoSelecionado?.id || null : null,
         numero_nf: numeroNf,
         data_emissao: dataEmissao || null,
         valor: valor ? parseFloat(valor) : null,
@@ -148,67 +231,231 @@ export default function EntradaNotaFiscal() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={buscarPedido} className="flex gap-2">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Número do pedido..."
-                className="pl-9"
-                value={numeroPedido}
-                onChange={(e) => setNumeroPedido(e.target.value)}
-              />
-            </div>
-            <Button type="submit" disabled={buscando || !numeroPedido.trim()}>
-              {buscando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Buscar
+          <div className="flex gap-2 mb-4">
+            <Button
+              type="button"
+              size="sm"
+              variant={modo === 'pedido' ? 'default' : 'outline'}
+              onClick={() => trocarModo('pedido')}
+            >
+              Tenho o número do pedido
             </Button>
-          </form>
+            <Button
+              type="button"
+              size="sm"
+              variant={modo === 'avulsa' ? 'default' : 'outline'}
+              onClick={() => trocarModo('avulsa')}
+            >
+              Não tenho pedido (entrada avulsa)
+            </Button>
+          </div>
 
-          {naoEncontrado && (
-            <p className="text-sm text-red-600 mt-3">
-              Nenhum pedido encontrado com esse número. Confira e tente novamente.
-            </p>
-          )}
+          {modo === 'pedido' ? (
+            <>
+              <form onSubmit={buscarPedido} className="flex gap-2">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Número do pedido..."
+                    className="pl-9"
+                    value={numeroPedido}
+                    onChange={(e) => setNumeroPedido(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" disabled={buscando || !numeroPedido.trim()}>
+                  {buscando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Buscar
+                </Button>
+              </form>
 
-          {pedido && (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-              <div>
-                <p className="text-slate-500">Pedido</p>
-                <p className="font-semibold">{pedido.numero}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Fornecedor</p>
-                <p className="font-semibold">{pedido.fornecedor_nome}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Empresa</p>
-                <p className="font-semibold">{pedido.empresa_nome ?? '—'}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Valor do pedido</p>
-                <p className="font-semibold">{fmtBRL(pedido.valor_total)}</p>
-              </div>
-              {pedido.itens.length > 0 && (
-                <div className="sm:col-span-4">
-                  <p className="text-slate-500 mb-1">Itens</p>
-                  <ul className="text-xs text-slate-600 space-y-0.5">
-                    {pedido.itens.map((it, idx) => (
-                      <li key={idx}>
-                        {it.quantidade}x {it.produto_nome}{' '}
-                        {it.produto_codigo && (
-                          <span className="font-mono text-slate-400">({it.produto_codigo})</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+              {naoEncontrado && (
+                <p className="text-sm text-red-600 mt-3">
+                  Nenhum pedido encontrado com esse número. Confira e tente novamente, ou use
+                  "Não tenho pedido" acima se essa compra nunca teve pedido no sistema.
+                </p>
+              )}
+
+              {pedido && (
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+                  <div>
+                    <p className="text-slate-500">Pedido</p>
+                    <p className="font-semibold">{pedido.numero}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Fornecedor</p>
+                    <p className="font-semibold">{pedido.fornecedor_nome}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Empresa</p>
+                    <p className="font-semibold">{pedido.empresa_nome ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Valor do pedido</p>
+                    <p className="font-semibold">{fmtBRL(pedido.valor_total)}</p>
+                  </div>
+                  {pedido.itens.length > 0 && (
+                    <div className="sm:col-span-4">
+                      <p className="text-slate-500 mb-1">Itens</p>
+                      <ul className="text-xs text-slate-600 space-y-0.5">
+                        {pedido.itens.map((it, idx) => (
+                          <li key={idx}>
+                            {it.quantidade}x {it.produto_nome}{' '}
+                            {it.produto_codigo && (
+                              <span className="font-mono text-slate-400">({it.produto_codigo})</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
+            </>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2 relative">
+                <Label>Fornecedor *</Label>
+                {fornecedorSelecionado ? (
+                  <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                    <span className="font-medium">{fornecedorSelecionado.nome}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setFornecedorSelecionado(null)
+                        setFornecedorBusca('')
+                      }}
+                    >
+                      Trocar
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Input
+                      placeholder="Buscar fornecedor..."
+                      value={fornecedorBusca}
+                      onChange={(e) => setFornecedorBusca(e.target.value)}
+                    />
+                    {fornecedorBusca.trim() && (
+                      <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
+                        {buscandoFornecedor ? (
+                          <div className="flex items-center justify-center py-3">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                          </div>
+                        ) : fornecedorResultados.length === 0 ? (
+                          <p className="text-xs text-slate-400 text-center py-3">
+                            Nenhum fornecedor encontrado.
+                          </p>
+                        ) : (
+                          fornecedorResultados.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                setFornecedorSelecionado(f)
+                                setFornecedorBusca('')
+                              }}
+                            >
+                              {f.nome}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Empresa</Label>
+                <Select value={empresaId} onValueChange={setEmpresaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {empresas.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 relative sm:col-span-2">
+                <Label>Produto (opcional — pode linkar depois)</Label>
+                {produtoSelecionado ? (
+                  <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                    <span className="font-medium">
+                      {produtoSelecionado.nome}{' '}
+                      {produtoSelecionado.codigo_produto != null && (
+                        <span className="font-mono text-slate-400">
+                          ({produtoSelecionado.codigo_produto})
+                        </span>
+                      )}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setProdutoSelecionado(null)
+                        setProdutoBusca('')
+                      }}
+                    >
+                      Trocar
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Input
+                      placeholder="Buscar produto (opcional)..."
+                      value={produtoBusca}
+                      onChange={(e) => setProdutoBusca(e.target.value)}
+                    />
+                    {produtoBusca.trim() && (
+                      <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
+                        {buscandoProduto ? (
+                          <div className="flex items-center justify-center py-3">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                          </div>
+                        ) : produtoResultados.length === 0 ? (
+                          <p className="text-xs text-slate-400 text-center py-3">
+                            Nenhum produto encontrado.
+                          </p>
+                        ) : (
+                          produtoResultados.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                setProdutoSelecionado(p)
+                                setProdutoBusca('')
+                              }}
+                            >
+                              {p.nome}{' '}
+                              {p.codigo_produto != null && (
+                                <span className="font-mono text-slate-400">({p.codigo_produto})</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {pedido && (
+      {podeRegistrar && (
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm uppercase tracking-wide text-slate-600 flex items-center gap-2">
@@ -219,11 +466,7 @@ export default function EntradaNotaFiscal() {
             <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Número da NF *</Label>
-                <Input
-                  required
-                  value={numeroNf}
-                  onChange={(e) => setNumeroNf(e.target.value)}
-                />
+                <Input required value={numeroNf} onChange={(e) => setNumeroNf(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Data de emissão</Label>
@@ -281,7 +524,12 @@ export default function EntradaNotaFiscal() {
           <CardTitle className="text-sm uppercase tracking-wide text-slate-600">
             Últimas entradas
           </CardTitle>
-          <Button size="sm" variant="outline" onClick={carregarHistorico} disabled={loadingHistorico}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={carregarHistorico}
+            disabled={loadingHistorico}
+          >
             <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loadingHistorico ? 'animate-spin' : ''}`} />
             Atualizar
           </Button>
@@ -316,7 +564,13 @@ export default function EntradaNotaFiscal() {
                 historico.map((nf) => (
                   <TableRow key={nf.id}>
                     <TableCell className="text-sm font-medium">{nf.numero_nf}</TableCell>
-                    <TableCell className="text-sm font-mono text-xs">{nf.pedido_numero}</TableCell>
+                    <TableCell className="text-sm font-mono text-xs">
+                      {nf.avulsa ? (
+                        <span className="italic text-slate-400 font-sans">Avulsa (sem pedido)</span>
+                      ) : (
+                        nf.pedido_numero
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm">{nf.fornecedor_nome}</TableCell>
                     <TableCell className="text-sm">{nf.empresa_nome ?? '—'}</TableCell>
                     <TableCell className="text-sm">{fmtDate(nf.data_emissao)}</TableCell>
