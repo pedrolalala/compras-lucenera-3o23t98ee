@@ -11,6 +11,13 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Loader2, ShoppingCart, Search, X } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -19,7 +26,9 @@ import {
   getProdutoImpostos,
   vincularOrigemPedidoItem,
   gerarParcelasPedidoCompra,
+  getEmpresas,
   type Fornecedor,
+  type Empresa,
 } from '@/services/pedido-compra'
 import type { NecessidadeCompraRow } from '@/services/necessidade-compra'
 import {
@@ -48,6 +57,8 @@ const EMPTY = {
   condicoesPagamento: '',
   observacao: '',
   gerarParcelas: false,
+  empresaId: '',
+  perfil: '',
 }
 
 function round4(n: number) {
@@ -59,6 +70,7 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
 
   const [form, setForm] = useState(EMPTY)
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [showList, setShowList] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingFornecedores, setLoadingFornecedores] = useState(false)
@@ -79,6 +91,18 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
     setOrigensSelecionadas(new Set())
     carregarFornecedores('')
     carregarOrigens(produto.produto_id)
+    getEmpresas()
+      .then(setEmpresas)
+      .catch(() => setEmpresas([]))
+    // SPEC-102: pré-seleciona o fornecedor já resolvido pro produto/marca
+    // (vw_necessidade_compra: COALESCE(produtos.fornecedor_principal_id,
+    // marcas.fornecedor_id)) — antes o modal sempre abria com fornecedor
+    // vazio mesmo já existindo um no cadastro. Reaproveita
+    // selecionarFornecedor, que já dispara o pré-preenchimento de
+    // impostos (SPEC-038); usuário continua podendo trocar depois.
+    if (produto.fornecedor_id && produto.fornecedor_nome) {
+      selecionarFornecedor({ id: produto.fornecedor_id, nome: produto.fornecedor_nome })
+    }
   }, [open, produto])
 
   useEffect(() => {
@@ -171,7 +195,8 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
   const valorSt = parseFloat(form.valorSt) || 0
   const custoUnitarioTotal = custoLiquido + valorIcms + valorIpi + valorSt
 
-  const canSubmit = !!form.fornecedorId && qtd > 0 && custoUnitarioTotal > 0 && !loading
+  const canSubmit =
+    !!form.fornecedorId && !!form.empresaId && qtd > 0 && custoUnitarioTotal > 0 && !loading
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -191,6 +216,8 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
         valor_icms: valorIcms || undefined,
         valor_ipi: valorIpi || undefined,
         valor_st: valorSt || undefined,
+        empresa_id: form.empresaId,
+        perfil: form.perfil || undefined,
       })
 
       if (origensSelecionadas.size > 0) {
@@ -419,11 +446,50 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
             </p>
           )}
 
+          {/* Empresa — reunião 04/08/2026: precisa ser escolhida por pedido */}
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
+              Empresa <span className="text-red-500">*</span>
+            </Label>
+            <Select
+              value={form.empresaId}
+              onValueChange={(v) => setForm((prev) => ({ ...prev, empresaId: v }))}
+            >
+              <SelectTrigger className="h-11 text-sm">
+                <SelectValue placeholder="Selecione a empresa que está comprando..." />
+              </SelectTrigger>
+              <SelectContent>
+                {empresas.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Perfil — SPEC-064: rótulo Ribeirão/São Paulo, só visualização */}
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">Perfil (opcional)</Label>
+            <Select
+              value={form.perfil}
+              onValueChange={(v) => setForm((prev) => ({ ...prev, perfil: v }))}
+            >
+              <SelectTrigger className="h-11 text-sm">
+                <SelectValue placeholder="Não informado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ribeirao">Ribeirão</SelectItem>
+                <SelectItem value="sao_paulo">São Paulo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Número do pedido — SPEC-038 Item 2: opcional, gerado automaticamente */}
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
             <Input
-              placeholder="Gerado automaticamente se deixado em branco (ex: PC-2026-0001)"
+              placeholder="Gerado automaticamente se deixado em branco"
               className="h-11 text-sm"
               value={form.numero}
               onChange={(e) => setForm((prev) => ({ ...prev, numero: e.target.value }))}
