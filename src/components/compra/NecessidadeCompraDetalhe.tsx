@@ -89,8 +89,11 @@ export function NecessidadeCompraDetalhe({ produtoId }: Props) {
                 <TableHead className="w-[11%] hidden lg:table-cell text-right text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   Vendido
                 </TableHead>
+                {/* SPEC-104: "Coberto" renomeado pra "Reservado" — mesmo
+                    termo já usado no card de peça do Cadastro (SPEC-101),
+                    pra não ter dois nomes pro mesmo conceito (q_reserva). */}
                 <TableHead className="w-[11%] hidden xl:table-cell text-right text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
-                  Coberto
+                  Reservado
                 </TableHead>
                 <TableHead className="w-[11%] text-right text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   A Comprar

@@ -42,9 +42,6 @@ import { SolicitarCompraDialog } from '@/components/compra/SolicitarCompraDialog
 // SPEC-040: aba nova "Por Item de Orçamento" (Fluxo B) — componente próprio,
 // não altera nada do Fluxo A abaixo.
 import { NecessidadeCompraPorItemTab } from '@/components/compra/NecessidadeCompraPorItemTab'
-// SPEC-054: aba nova "Devolução" — componente próprio, não altera nada dos
-// Fluxos A/B existentes.
-import { DevolucaoEstoqueTab } from '@/components/compra/DevolucaoEstoqueTab'
 import {
   getNecessidadeCompra,
   type NecessidadeCompraRow,
@@ -244,12 +241,16 @@ export default function NecessidadeCompra() {
           existente (SPEC-039), sem NENHUMA alteração de comportamento abaixo
           — só foi reindentado para dentro de TabsContent. "Por Item de
           Orçamento" é o Fluxo B novo (componente próprio, ver
-          components/compra/NecessidadeCompraPorItemTab.tsx). */}
+          components/compra/NecessidadeCompraPorItemTab.tsx).
+          SPEC-104: aba "Devolução" (SPEC-054) removida desta rotina de
+          Compras a pedido explícito do usuário — "essa coisa nem deveria
+          ter aqui nessa rotina de compra". O componente DevolucaoEstoqueTab
+          e a lógica de devolução de estoque continuam existindo no banco,
+          só o atalho de acesso por aqui foi tirado. */}
       <Tabs defaultValue="produto" className="flex flex-col flex-1 min-h-0 gap-4">
         <TabsList className="w-fit shrink-0">
           <TabsTrigger value="produto">Por Produto</TabsTrigger>
           <TabsTrigger value="item">Por Item de Orçamento</TabsTrigger>
-          <TabsTrigger value="devolucao">Devolução</TabsTrigger>
         </TabsList>
 
         {/* Bug de layout (Radix + Tailwind): o atributo nativo `hidden` que o
@@ -603,12 +604,6 @@ export default function NecessidadeCompra() {
         <TabsContent value="item" className="flex-1 min-h-0 mt-0">
           <div className="flex flex-col h-full min-h-0">
             <NecessidadeCompraPorItemTab />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="devolucao" className="flex-1 min-h-0 mt-0">
-          <div className="flex flex-col h-full min-h-0">
-            <DevolucaoEstoqueTab />
           </div>
         </TabsContent>
       </Tabs>
