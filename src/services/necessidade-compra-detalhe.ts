@@ -16,6 +16,10 @@ export interface NecessidadeCompraDetalheRow {
   qtd_vendida: number
   q_reserva: number
   q_entrega_futura: number
+  // SPEC-103 (parte 2): empresa que originou a venda (orcamentos.empresa_id)
+  // — só informativo, não implica regra automática de qual empresa comprar.
+  empresa_id: string | null
+  empresa_nome: string | null
 }
 
 export async function getNecessidadeCompraDetalhe(

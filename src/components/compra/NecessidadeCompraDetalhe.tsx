@@ -81,6 +81,11 @@ export function NecessidadeCompraDetalhe({ produtoId }: Props) {
                 <TableHead className="text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   Para quem vai
                 </TableHead>
+                {/* SPEC-103 (parte 2): empresa que originou a venda — visibilidade,
+                    sem regra automática de qual empresa deve comprar. */}
+                <TableHead className="w-[13%] hidden md:table-cell text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
+                  Empresa
+                </TableHead>
                 <TableHead className="w-[11%] hidden lg:table-cell text-right text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   Vendido
                 </TableHead>
@@ -116,6 +121,9 @@ export function NecessidadeCompraDetalhe({ produtoId }: Props) {
                   </TableCell>
                   <TableCell className="align-middle py-1.5">
                     <span className="text-xs text-slate-700 font-medium">{r.cliente ?? '—'}</span>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell align-middle py-1.5">
+                    <span className="text-xs text-slate-500">{r.empresa_nome ?? '—'}</span>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-right align-middle py-1.5">
                     <span className="text-xs text-slate-500 tabular-nums">{r.qtd_vendida}</span>

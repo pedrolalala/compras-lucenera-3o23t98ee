@@ -554,7 +554,10 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                         {o.projeto_nome ?? '—'}{' '}
                         {o.orcamento_numero ? `· ${o.orcamento_numero}` : ''}
                       </span>
-                      <span className="text-slate-400">{o.cliente ?? ''}</span>
+                      <span className="text-slate-400">
+                        {o.cliente ?? ''}
+                        {o.empresa_nome ? ` · ${o.empresa_nome}` : ''}
+                      </span>
                     </label>
                   ))
                 )}
