@@ -402,7 +402,10 @@ export default function NecessidadeCompra() {
                               className="hover:bg-transparent"
                             >
                               <TableCell colSpan={9} className="p-0">
-                                <NecessidadeCompraDetalhe produtoId={r.produto_id} />
+                                <NecessidadeCompraDetalhe
+                                  produtoId={r.produto_id}
+                                  onPurchased={loadData}
+                                />
                               </TableCell>
                             </TableRow>
                           ) : null
@@ -547,7 +550,7 @@ export default function NecessidadeCompra() {
             </div>
 
             <div className="w-full xl:w-80 shrink-0 flex flex-col xl:overflow-hidden xl:h-full">
-              <NecessidadeDetailsPanel produto={selectedProduto} onPurchased={loadData} />
+              <NecessidadeDetailsPanel produto={selectedProduto} />
             </div>
           </div>
 

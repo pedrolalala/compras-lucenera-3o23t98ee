@@ -1,52 +1,24 @@
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { ShoppingCart, Hash, Package, PackageCheck } from 'lucide-react'
+import { ShoppingCart, Hash, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type NecessidadeCompraRow } from '@/services/necessidade-compra'
-import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
-import {
-  SelecionarLParaCompraModal,
-  type ItemComCliente,
-} from './SelecionarLParaCompraModal'
 
 interface Props {
   produto: NecessidadeCompraRow | null
-  // SPEC-103 (parte 1): notifica a tela pai (lista "Por Produto") depois de
-  // gerar uma compra por L aqui dentro, pra recarregar pendente/necessidade.
-  onPurchased?: () => void
 }
 
-// SPEC-103 (parte 1, revisão): o card lateral tentou embutir a lista de L's
-// direto aqui e o usuário achou confuso (espaço apertado pra escolher entre
-// vários L's/clientes). Virou um botão que abre um modal de verdade
-// (SelecionarLParaCompraModal.tsx) — este painel agora só mostra o resumo do
-// produto e o atalho pra abrir a seleção.
-export function NecessidadeDetailsPanel({ produto, onPurchased }: Props) {
-  const [selecionarOpen, setSelecionarOpen] = useState(false)
-  const [modalCompraOpen, setModalCompraOpen] = useState(false)
-  const [itensParaComprar, setItensParaComprar] = useState<ItemComCliente[]>([])
-  const [fornecedorId, setFornecedorId] = useState('')
-  const [fornecedorNome, setFornecedorNome] = useState('')
-
-  function handleConfirmarSelecao(
-    itens: ItemComCliente[],
-    fId: string,
-    fNome: string,
-  ) {
-    setItensParaComprar(itens)
-    setFornecedorId(fId)
-    setFornecedorNome(fNome)
-    setSelecionarOpen(false)
-    setModalCompraOpen(true)
-  }
-
+// SPEC-103 (parte 1, revisão 2): a compra por L não passa mais por este
+// painel — o usuário testou o modal e o card lateral e pediu pra marcar
+// direto na linha expandida "Ver projetos" (NecessidadeCompraDetalhe.tsx),
+// no lugar onde já está acostumado a ver o detalhe por L. Este painel
+// voltou a ser só o resumo do produto selecionado.
+export function NecessidadeDetailsPanel({ produto }: Props) {
   if (!produto) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-y-auto flex-1">
         <div className="p-8 text-center flex flex-col items-center justify-center text-slate-500 min-h-[400px]">
           <ShoppingCart className="w-12 h-12 mb-4 text-slate-200" />
           <h3 className="font-medium text-slate-900 mb-1">Nenhum produto selecionado</h3>
-          <p className="text-sm">Clique em um produto para comprar por item de orçamento (L).</p>
+          <p className="text-sm">Clique em um produto para ver o resumo de estoque.</p>
         </div>
       </div>
     )
@@ -71,49 +43,15 @@ export function NecessidadeDetailsPanel({ produto, onPurchased }: Props) {
         </div>
       </div>
 
-      <div className="px-4 sm:px-5 py-5 flex flex-col gap-3 flex-1">
-        <h4 className="text-sm font-semibold flex items-center text-slate-700">
-          <Package className="w-4 h-4 mr-2 text-slate-400" />
-          Comprar por Item (L)
-        </h4>
-        <p className="text-xs text-slate-500">
-          Escolha visualmente quais L's/clientes deste produto entram no pedido de
-          compra — abre num painel maior, mais fácil de comparar vários de uma vez.
+      <div className="px-4 sm:px-5 py-5 flex-1 flex flex-col items-center justify-center text-center gap-2">
+        <ChevronRight className="w-8 h-8 text-slate-300" />
+        <p className="text-sm text-slate-500">
+          Pra comprar por item de orçamento (L), clique no número na coluna{' '}
+          <span className="font-medium text-slate-700">Projetos</span> desta
+          linha, na tabela ao lado, e marque os L's que quer incluir no
+          pedido.
         </p>
-        <Button
-          type="button"
-          className="bg-emerald-600 hover:bg-emerald-700 text-white"
-          onClick={() => setSelecionarOpen(true)}
-        >
-          <PackageCheck className="w-4 h-4 mr-2" />
-          Selecionar L's pra comprar
-        </Button>
-        {produto.projetos_com_entrega_futura > 0 && (
-          <p className="text-xs text-slate-400">
-            {produto.projetos_com_entrega_futura} projeto(s) com entrega futura pendente.
-          </p>
-        )}
       </div>
-
-      <SelecionarLParaCompraModal
-        open={selecionarOpen}
-        onOpenChange={setSelecionarOpen}
-        produto={produto}
-        onConfirmar={handleConfirmarSelecao}
-      />
-
-      <ModalGerarCompraItemOrcamento
-        open={modalCompraOpen}
-        onOpenChange={setModalCompraOpen}
-        itens={itensParaComprar}
-        fornecedorId={fornecedorId}
-        fornecedorNome={fornecedorNome}
-        onSuccess={() => {
-          setModalCompraOpen(false)
-          setItensParaComprar([])
-          onPurchased?.()
-        }}
-      />
     </div>
   )
 }
