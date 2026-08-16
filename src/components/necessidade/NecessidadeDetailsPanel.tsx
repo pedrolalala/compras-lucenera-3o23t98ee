@@ -1,44 +1,13 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Skeleton } from '@/components/ui/skeleton'
 import { ShoppingCart, Hash, Package, PackageCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getEntregaFuturaPorProduto, type NecessidadeCompraRow } from '@/services/necessidade-compra'
-import {
-  getNecessidadeCompraItemPorProduto,
-  type NecessidadeCompraItemRow,
-} from '@/services/necessidade-compra-item'
+import { type NecessidadeCompraRow } from '@/services/necessidade-compra'
 import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
-
-function formatDate(v: string | null | undefined) {
-  if (!v) return '-'
-  const d = new Date(v)
-  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR')
-}
-
-function formatDiasEmAberto(dias: number | null): string {
-  if (dias === null || dias === undefined) return '-'
-  if (dias === 0) return 'hoje'
-  if (dias === 1) return '1 dia'
-  if (dias < 14) return `${dias} dias`
-  const semanas = Math.floor(dias / 7)
-  if (dias < 30) return `${semanas} semana${semanas > 1 ? 's' : ''}`
-  const meses = Math.floor(dias / 30)
-  return `${meses} ${meses > 1 ? 'meses' : 'mês'}`
-}
-
-function diasEmAbertoColor(dias: number | null): string {
-  if (dias === null || dias === undefined) return 'bg-slate-100 text-slate-600'
-  if (dias >= 21) return 'bg-red-100 text-red-700'
-  if (dias >= 7) return 'bg-amber-100 text-amber-700'
-  return 'bg-slate-100 text-slate-600'
-}
-
-interface ItemComCliente extends NecessidadeCompraItemRow {
-  cliente: string | null
-  dias_em_aberto: number | null
-}
+import {
+  SelecionarLParaCompraModal,
+  type ItemComCliente,
+} from './SelecionarLParaCompraModal'
 
 interface Props {
   produto: NecessidadeCompraRow | null
@@ -47,78 +16,28 @@ interface Props {
   onPurchased?: () => void
 }
 
+// SPEC-103 (parte 1, revisão): o card lateral tentou embutir a lista de L's
+// direto aqui e o usuário achou confuso (espaço apertado pra escolher entre
+// vários L's/clientes). Virou um botão que abre um modal de verdade
+// (SelecionarLParaCompraModal.tsx) — este painel agora só mostra o resumo do
+// produto e o atalho pra abrir a seleção.
 export function NecessidadeDetailsPanel({ produto, onPurchased }: Props) {
-  const [itens, setItens] = useState<ItemComCliente[]>([])
-  const [loading, setLoading] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [modalOpen, setModalOpen] = useState(false)
-  const [atualizadoEm, setAtualizadoEm] = useState<string | null>(null)
+  const [selecionarOpen, setSelecionarOpen] = useState(false)
+  const [modalCompraOpen, setModalCompraOpen] = useState(false)
+  const [itensParaComprar, setItensParaComprar] = useState<ItemComCliente[]>([])
+  const [fornecedorId, setFornecedorId] = useState('')
+  const [fornecedorNome, setFornecedorNome] = useState('')
 
-  const produtoId = produto?.produto_id ?? null
-
-  async function loadItens(id: string) {
-    const [itemRows, entregaRows] = await Promise.all([
-      getNecessidadeCompraItemPorProduto(id),
-      getEntregaFuturaPorProduto(id),
-    ])
-    const entregaPorItem = new Map(entregaRows.map((r) => [r.projeto_item_id, r]))
-    setItens(
-      itemRows.map((r) => ({
-        ...r,
-        cliente: entregaPorItem.get(r.projeto_item_id)?.cliente ?? null,
-        dias_em_aberto: entregaPorItem.get(r.projeto_item_id)?.dias_em_aberto ?? null,
-      })),
-    )
-    setAtualizadoEm(entregaRows[0]?.atualizado_em ?? null)
-  }
-
-  useEffect(() => {
-    if (!produtoId) {
-      setItens([])
-      setSelectedIds(new Set())
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    setSelectedIds(new Set())
-    loadItens(produtoId)
-      .catch(() => {
-        if (!cancelled) setItens([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [produtoId])
-
-  function toggleSelect(itemId: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(itemId)) next.delete(itemId)
-      else next.add(itemId)
-      return next
-    })
-  }
-
-  const selectedItens = useMemo(
-    () => itens.filter((it) => selectedIds.has(it.projeto_item_id)),
-    [itens, selectedIds],
-  )
-
-  // fornecedor_id é resolvido por produto/marca (cascata de
-  // vw_necessidade_compra_item_orcamento) — igual em todas as linhas deste
-  // produto, então basta olhar a primeira selecionada.
-  const fornecedorId = selectedItens[0]?.fornecedor_id ?? ''
-  const fornecedorNome = selectedItens[0]?.fornecedor_nome ?? ''
-
-  function reload() {
-    if (!produtoId) return
-    setLoading(true)
-    loadItens(produtoId)
-      .catch(() => setItens([]))
-      .finally(() => setLoading(false))
+  function handleConfirmarSelecao(
+    itens: ItemComCliente[],
+    fId: string,
+    fNome: string,
+  ) {
+    setItensParaComprar(itens)
+    setFornecedorId(fId)
+    setFornecedorNome(fNome)
+    setSelecionarOpen(false)
+    setModalCompraOpen(true)
   }
 
   if (!produto) {
@@ -152,115 +71,46 @@ export function NecessidadeDetailsPanel({ produto, onPurchased }: Props) {
         </div>
       </div>
 
-      <div className="px-4 sm:px-5 pb-5 pt-4 flex flex-col gap-3 flex-1 min-h-0">
-        <div className="flex items-center justify-between gap-2 shrink-0">
-          <h4 className="text-sm font-semibold flex items-center text-slate-700">
-            <Package className="w-4 h-4 mr-2 text-slate-400" />
-            Comprar por Item (L)
-          </h4>
-          {selectedIds.size > 0 && (
-            <Button
-              size="sm"
-              className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
-              onClick={() => setModalOpen(true)}
-            >
-              <PackageCheck className="w-3.5 h-3.5 mr-1" />
-              Gerar Compra ({selectedIds.size})
-            </Button>
-          )}
-        </div>
-
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full bg-slate-100" />
-            ))}
-          </div>
-        ) : itens.length === 0 ? (
-          <div className="border rounded-lg bg-slate-50 flex items-center justify-center p-6 text-center">
-            <p className="text-sm text-slate-500">Nenhum item de orçamento com necessidade pendente.</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
-            {itens.map((it) => {
-              const checked = selectedIds.has(it.projeto_item_id)
-              return (
-                <label
-                  key={it.projeto_item_id}
-                  className={cn(
-                    'flex items-start gap-2 rounded-lg border p-2 cursor-pointer transition-colors',
-                    checked
-                      ? 'bg-primary/5 border-primary/30'
-                      : 'bg-slate-50 border-slate-100 hover:bg-slate-100/60',
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    disabled={!it.fornecedor_id}
-                    onCheckedChange={() => toggleSelect(it.projeto_item_id)}
-                    className="mt-0.5 shrink-0"
-                    title={
-                      it.fornecedor_id
-                        ? undefined
-                        : 'Sem fornecedor resolvido (produto/marca sem fornecedor cadastrado)'
-                    }
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-mono text-xs font-semibold text-slate-700">
-                        {it.orcamento_numero ?? '—'}
-                      </span>
-                      {it.l_fixo && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono text-[10px] font-semibold">
-                          {it.l_fixo}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-600 truncate mt-0.5">
-                      {it.cliente ?? 'Cliente não identificado'}
-                    </p>
-                    <p className="text-[11px] text-slate-400 truncate">
-                      {it.fornecedor_nome ?? 'Sem fornecedor cadastrado'}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                    <span className="font-bold text-red-600 text-sm tabular-nums">
-                      {it.pendente_item}
-                    </span>
-                    {it.dias_em_aberto !== null && (
-                      <span
-                        className={cn(
-                          'text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap',
-                          diasEmAbertoColor(it.dias_em_aberto),
-                        )}
-                      >
-                        {formatDiasEmAberto(it.dias_em_aberto)}
-                      </span>
-                    )}
-                  </div>
-                </label>
-              )
-            })}
-          </div>
-        )}
-
-        {atualizadoEm && (
-          <p className="text-[11px] text-slate-400 text-center shrink-0">
-            Atualizado em {formatDate(atualizadoEm)}
+      <div className="px-4 sm:px-5 py-5 flex flex-col gap-3 flex-1">
+        <h4 className="text-sm font-semibold flex items-center text-slate-700">
+          <Package className="w-4 h-4 mr-2 text-slate-400" />
+          Comprar por Item (L)
+        </h4>
+        <p className="text-xs text-slate-500">
+          Escolha visualmente quais L's/clientes deste produto entram no pedido de
+          compra — abre num painel maior, mais fácil de comparar vários de uma vez.
+        </p>
+        <Button
+          type="button"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          onClick={() => setSelecionarOpen(true)}
+        >
+          <PackageCheck className="w-4 h-4 mr-2" />
+          Selecionar L's pra comprar
+        </Button>
+        {produto.projetos_com_entrega_futura > 0 && (
+          <p className="text-xs text-slate-400">
+            {produto.projetos_com_entrega_futura} projeto(s) com entrega futura pendente.
           </p>
         )}
       </div>
 
+      <SelecionarLParaCompraModal
+        open={selecionarOpen}
+        onOpenChange={setSelecionarOpen}
+        produto={produto}
+        onConfirmar={handleConfirmarSelecao}
+      />
+
       <ModalGerarCompraItemOrcamento
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        itens={selectedItens}
+        open={modalCompraOpen}
+        onOpenChange={setModalCompraOpen}
+        itens={itensParaComprar}
         fornecedorId={fornecedorId}
         fornecedorNome={fornecedorNome}
         onSuccess={() => {
-          setModalOpen(false)
-          setSelectedIds(new Set())
-          reload()
+          setModalCompraOpen(false)
+          setItensParaComprar([])
           onPurchased?.()
         }}
       />
