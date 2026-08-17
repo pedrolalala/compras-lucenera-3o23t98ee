@@ -168,12 +168,19 @@ export interface ProdutoBusca {
 }
 
 export async function buscarProdutosParaEntrada(termo: string): Promise<ProdutoBusca[]> {
-  if (!termo.trim()) return []
-  const { data, error } = await (supabase as any)
-    .from('produtos')
-    .select('id, nome, codigo_produto')
-    .or(`nome.ilike.%${termo.trim()}%,referencia.ilike.%${termo.trim()}%`)
-    .limit(20)
+  const trimmed = termo.trim()
+  if (!trimmed) return []
+  // SPEC-116: multi-termo em qualquer ordem — cada palavra digitada
+  // precisa casar em nome, referência ou sku (não precisa ser o mesmo
+  // campo). Encadear .or() por termo faz o PostgREST AND-ar os grupos.
+  let query = (supabase as any).from('produtos').select('id, nome, codigo_produto').limit(20)
+  trimmed
+    .split(/\s+/)
+    .filter(Boolean)
+    .forEach((term) => {
+      query = query.or(`nome.ilike.%${term}%,referencia.ilike.%${term}%,sku.ilike.%${term}%`)
+    })
+  const { data, error } = await query
   if (error) throw error
   return (data ?? []) as ProdutoBusca[]
 }

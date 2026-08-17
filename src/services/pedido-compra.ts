@@ -388,20 +388,36 @@ export interface PedidoCompraRow {
 }
 
 export async function getPedidosCompra(searchTerm?: string): Promise<PedidoCompraRow[]> {
-  let query = (supabase as any)
+  // SPEC-116: o PostgREST não aceita combinar uma coluna própria (numero)
+  // com uma coluna de resource embutido (contatos.nome) dentro do mesmo
+  // .or() — testado direto contra a API real, dá erro de parse
+  // (PGRST100). Como a lista já é limitada a 300 pedidos, o filtro
+  // multi-termo (número OU fornecedor, em qualquer ordem, sem acento) é
+  // aplicado no cliente, sobre os 300 já carregados.
+  const { data, error } = await (supabase as any)
     .from('pedidos_compra')
     .select('*, contatos!fornecedor_id(nome)')
     .order('criado_em', { ascending: false })
     .limit(300)
-
-  if (searchTerm && searchTerm.trim()) {
-    query = query.ilike('numero', `%${searchTerm.trim()}%`)
-  }
-
-  const { data, error } = await query
   if (error) throw error
-  return ((data ?? []) as any[]).map((d) => ({
+
+  const rows = ((data ?? []) as any[]).map((d) => ({
     ...d,
     fornecedor_nome: d.contatos?.nome ?? '—',
   })) as PedidoCompraRow[]
+
+  const trimmed = searchTerm?.trim()
+  if (!trimmed) return rows
+
+  const normalize = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+  const terms = normalize(trimmed).split(/\s+/).filter(Boolean)
+
+  return rows.filter((r) => {
+    const haystack = normalize([r.numero, r.fornecedor_nome].filter(Boolean).join(' '))
+    return terms.every((t) => haystack.includes(t))
+  })
 }

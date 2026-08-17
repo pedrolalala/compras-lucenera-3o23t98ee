@@ -30,10 +30,21 @@ const BATCH_SIZE = 500
 
 function applySearch(query: any, term?: string) {
   if (!term?.trim()) return query
-  const t = term.trim()
-  return query.or(
-    `produto.ilike.%${t}%,produto_codigo.ilike.%${t}%,sku.ilike.%${t}%,referencia.ilike.%${t}%,marca.ilike.%${t}%`,
-  )
+  // SPEC-116: multi-termo em qualquer ordem — cada palavra digitada precisa
+  // casar em algum campo (nome, código, sku, referência, marca ou
+  // categoria), não necessariamente no mesmo campo. Encadear .or() em cada
+  // termo faz o PostgREST somar as condições como AND entre os grupos.
+  let q = query
+  term
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .forEach((t) => {
+      q = q.or(
+        `produto.ilike.%${t}%,produto_codigo.ilike.%${t}%,sku.ilike.%${t}%,referencia.ilike.%${t}%,marca.ilike.%${t}%,categoria.ilike.%${t}%`,
+      )
+    })
+  return q
 }
 
 export async function getEstoqueProdutos(

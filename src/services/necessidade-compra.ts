@@ -99,16 +99,29 @@ function applySearchFilter(query: any, searchTerm?: string) {
   const trimmed = searchTerm.trim()
   if (!trimmed) return query
 
-  const isNumeric = /^\d+$/.test(trimmed)
-  if (isNumeric) {
-    // produto_codigo é integer — comparação exata, sem CAST em runtime
-    // dentro do .or() do PostgREST (busca só por código exato, não
-    // prefixo/substring).
-    return query.or(`produto.ilike.%${trimmed}%,produto_codigo.eq.${parseInt(trimmed, 10)}`)
-  }
-  // Termo não numérico nunca poderia bater em produto_codigo (integer) —
-  // gerar só a condição que faz sentido.
-  return query.ilike('produto', `%${trimmed}%`)
+  // SPEC-116: multi-termo em qualquer ordem — cada palavra digitada precisa
+  // casar em produto, marca ou código (não precisa ser o mesmo campo).
+  // Encadear .or() por termo faz o PostgREST AND-ar os grupos entre si.
+  let q = query
+  trimmed
+    .split(/\s+/)
+    .filter(Boolean)
+    .forEach((term) => {
+      const isNumeric = /^\d+$/.test(term)
+      if (isNumeric) {
+        // produto_codigo é integer — comparação exata, sem CAST em runtime
+        // dentro do .or() do PostgREST (busca só por código exato, não
+        // prefixo/substring; ilike não existe para integer).
+        q = q.or(
+          `produto.ilike.%${term}%,produto_codigo.eq.${parseInt(term, 10)},marca_nome.ilike.%${term}%`,
+        )
+      } else {
+        // Termo não numérico nunca poderia bater em produto_codigo
+        // (integer) — gerar só as condições que fazem sentido.
+        q = q.or(`produto.ilike.%${term}%,marca_nome.ilike.%${term}%`)
+      }
+    })
+  return q
 }
 
 export async function getNecessidadeCompra(
