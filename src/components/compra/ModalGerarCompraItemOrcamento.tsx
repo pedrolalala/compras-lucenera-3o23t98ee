@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,13 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -22,10 +30,19 @@ import { Loader2, PackageCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import {
   criarPedidoCompraLote,
+  getEmpresas,
   getProdutoImpostosBulk,
   vincularOrigemPedidoItem,
+  type Empresa,
 } from '@/services/pedido-compra'
 import type { NecessidadeCompraItemRow } from '@/services/necessidade-compra-item'
+
+// SPEC-155 (P3): remove as setinhas de incremento nativas dos campos
+// numéricos deste modal -- pedido explícito do relatório (atrapalhavam
+// digitação de valor com várias casas decimais). Tailwind não tem
+// utilitário pronto pra isso; arbitrary variants cobrem WebKit e Firefox.
+const NO_SPINNER =
+  '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]'
 
 // SPEC-040 — Fluxo B ("Por Item de Orçamento"). Modelado sobre
 // ModalPedidoLote.tsx (Fluxo A, não alterado), mas com duas diferenças
@@ -83,6 +100,15 @@ export function ModalGerarCompraItemOrcamento({
   const [condicoesPagamento, setCondicoesPagamento] = useState('')
   const [observacao, setObservacao] = useState('')
   const [loading, setLoading] = useState(false)
+  // SPEC-155 (P3): empresa emitente (mesmo padrão já obrigatório em
+  // ModalPedidoLote.tsx, Fluxo A -- este modal, Fluxo B, nunca coletava isso,
+  // então todo pedido gerado por aqui ficava com empresa_id nulo).
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
+  const [empresaId, setEmpresaId] = useState('')
+  // SPEC-155 (P3): desconto negociado (%) e local de entrega -- novos campos
+  // pedidos no relatório, ambos opcionais.
+  const [descontoPercentual, setDescontoPercentual] = useState('')
+  const [localEntrega, setLocalEntrega] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -105,6 +131,12 @@ export function ModalGerarCompraItemOrcamento({
     setDataPrevista('')
     setCondicoesPagamento('')
     setObservacao('')
+    setEmpresaId('')
+    setDescontoPercentual('')
+    setLocalEntrega('')
+    getEmpresas()
+      .then(setEmpresas)
+      .catch(() => setEmpresas([]))
 
     getProdutoImpostosBulk(
       itens.map((it) => it.produto_id),
@@ -167,12 +199,23 @@ export function ModalGerarCompraItemOrcamento({
   const todasLinhasValidas =
     linhasValidas.length > 0 && linhasValidas.every((l) => l.qtd > 0 && l.custo > 0)
 
-  const canSubmit = todasLinhasValidas && !loading
+  // SPEC-155 (P3): Empresa emitente passa a ser obrigatória, mesmo padrão
+  // já usado no Fluxo A (ModalPedidoLote.tsx).
+  const canSubmit = todasLinhasValidas && !!empresaId && !loading
 
   const totalEstimado = linhasValidas.reduce(
     (s, l) => (l.qtd > 0 && l.custo > 0 ? s + l.qtd * l.custo : s),
     0,
   )
+
+  // SPEC-155 (P3, achado do revisor): clampa em [0, 100] tanto pra prévia
+  // quanto pro valor enviado -- sem isso, digitar negativo fazia a prévia
+  // mostrar um total "com desconto" maior que o real (submit descartava o
+  // valor silenciosamente), e digitar >100 fazia a prévia mostrar total
+  // negativo antes da RPC rejeitar.
+  const descontoNum = Math.min(100, Math.max(0, parseFloat(descontoPercentual) || 0))
+  const totalComDesconto =
+    descontoNum > 0 ? totalEstimado * (1 - descontoNum / 100) : totalEstimado
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -194,6 +237,9 @@ export function ModalGerarCompraItemOrcamento({
         data_prevista_entrega: dataPrevista || undefined,
         condicoes_pagamento: condicoesPagamento.trim() || undefined,
         observacao: observacao.trim() || undefined,
+        empresa_id: empresaId,
+        desconto_percentual: descontoNum > 0 ? descontoNum : undefined,
+        local_entrega: localEntrega.trim() || undefined,
       })
 
       // Vínculo de origem OBRIGATÓRIO (P-03) — mapeado por índice, porque
@@ -250,14 +296,23 @@ export function ModalGerarCompraItemOrcamento({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[1040px] max-h-[92vh] overflow-y-auto p-8">
+      {/* SPEC-155 (P3, item 1): modal aumentada (1040px -> 1440px) -- campos
+          e tabela ficavam apertados/pouco legíveis. */}
+      <DialogContent className="sm:max-w-[1440px] max-h-[92vh] overflow-y-auto p-8">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <PackageCheck className="w-4 h-4 text-emerald-600" />
-            Gerar Compra por Item de Orçamento — {fornecedorNome}
+            Gerar Compra por Item de Orçamento
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-6 pt-2">
+          {/* SPEC-155 (P3, item 5): fornecedor como campo visível no corpo do
+              pedido, não só no título da modal. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <Label className="text-xs text-slate-500 uppercase tracking-wide">Fornecedor</Label>
+            <p className="text-sm font-semibold text-slate-800">{fornecedorNome}</p>
+          </div>
+
           <div className="border border-slate-200 rounded-lg overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50">
@@ -265,12 +320,35 @@ export function ModalGerarCompraItemOrcamento({
                   <TableHead className="text-xs">Orçamento</TableHead>
                   <TableHead className="text-xs">L Fixo</TableHead>
                   <TableHead className="text-xs">Produto</TableHead>
-                  <TableHead className="text-xs w-[100px] text-right">Quantidade</TableHead>
-                  <TableHead className="text-xs w-[90px] text-right">Líquido (R$)</TableHead>
-                  <TableHead className="text-xs w-[80px] text-right">ICMS (R$)</TableHead>
-                  <TableHead className="text-xs w-[80px] text-right">IPI (R$)</TableHead>
-                  <TableHead className="text-xs w-[80px] text-right">ST (R$)</TableHead>
-                  <TableHead className="text-xs w-[100px] text-right">Total (R$)</TableHead>
+                  <TableHead className="text-xs w-[110px] text-right">Quantidade</TableHead>
+                  {/* SPEC-155 (P3, item 2): coluna alargada (90px -> 130px)
+                      pra mostrar o valor por inteiro, sem cortar. */}
+                  <TableHead className="text-xs w-[130px] text-right">Líquido (R$)</TableHead>
+                  {/* SPEC-155 (P3, itens 3/4): ICMS/IPI/ST viram somente
+                      leitura, preenchidos automaticamente do cadastro do
+                      produto (getProdutoImpostosBulk) -- deixam de ser
+                      <Input type="number">, então a validação nativa de
+                      incremento decimal do navegador ("os dois valores mais
+                      próximos são...") nunca mais aparece nesses campos. */}
+                  <TableHead className="text-xs w-[100px] text-right">
+                    ICMS (R$)
+                    <span className="block font-normal normal-case text-[10px] text-slate-400">
+                      do cadastro
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-xs w-[100px] text-right">
+                    IPI (R$)
+                    <span className="block font-normal normal-case text-[10px] text-slate-400">
+                      do cadastro
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-xs w-[100px] text-right">
+                    ST (R$)
+                    <span className="block font-normal normal-case text-[10px] text-slate-400">
+                      do cadastro
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-xs w-[120px] text-right">Total (R$)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -293,7 +371,7 @@ export function ModalGerarCompraItemOrcamento({
                         type="number"
                         min="0.001"
                         step="0.001"
-                        className="h-9 text-sm text-right"
+                        className={cn('h-9 text-sm text-right', NO_SPINNER)}
                         value={l.quantidade}
                         onChange={(e) =>
                           atualizarLinha(l.projeto_item_id, 'quantidade', e.target.value)
@@ -305,48 +383,30 @@ export function ModalGerarCompraItemOrcamento({
                         type="number"
                         min="0"
                         step="0.01"
-                        className="h-9 text-sm text-right"
+                        className={cn('h-9 text-sm text-right', NO_SPINNER)}
                         value={l.custoLiquido}
                         onChange={(e) =>
                           atualizarLinha(l.projeto_item_id, 'custoLiquido', e.target.value)
                         }
                       />
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="h-9 text-sm text-right"
-                        value={l.valorIcms}
-                        onChange={(e) =>
-                          atualizarLinha(l.projeto_item_id, 'valorIcms', e.target.value)
-                        }
-                      />
+                    <TableCell className="text-right text-sm text-slate-600 tabular-nums">
+                      {(parseFloat(l.valorIcms) || 0).toLocaleString('pt-BR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="h-9 text-sm text-right"
-                        value={l.valorIpi}
-                        onChange={(e) =>
-                          atualizarLinha(l.projeto_item_id, 'valorIpi', e.target.value)
-                        }
-                      />
+                    <TableCell className="text-right text-sm text-slate-600 tabular-nums">
+                      {(parseFloat(l.valorIpi) || 0).toLocaleString('pt-BR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="h-9 text-sm text-right"
-                        value={l.valorSt}
-                        onChange={(e) =>
-                          atualizarLinha(l.projeto_item_id, 'valorSt', e.target.value)
-                        }
-                      />
+                    <TableCell className="text-right text-sm text-slate-600 tabular-nums">
+                      {(parseFloat(l.valorSt) || 0).toLocaleString('pt-BR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold text-slate-700">
                       {l.custo > 0
@@ -360,13 +420,69 @@ export function ModalGerarCompraItemOrcamento({
           </div>
 
           {totalEstimado > 0 && (
-            <p className="text-sm text-slate-500 text-right -mt-2">
-              Total estimado:{' '}
-              <span className="font-semibold text-slate-700">
-                {totalEstimado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
-            </p>
+            <div className="text-right -mt-2 space-y-0.5">
+              <p className="text-sm text-slate-500">
+                Total estimado:{' '}
+                <span className="font-semibold text-slate-700">
+                  {totalEstimado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              </p>
+              {descontoNum > 0 && (
+                <p className="text-sm text-emerald-700">
+                  Com desconto de {descontoNum}%:{' '}
+                  <span className="font-semibold">
+                    {totalComDesconto.toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    })}
+                  </span>
+                </p>
+              )}
+            </div>
           )}
+
+          <div className="space-y-2">
+            <Label className="text-sm text-slate-600">
+              Empresa <span className="text-red-500">*</span>
+            </Label>
+            <Select value={empresaId} onValueChange={setEmpresaId}>
+              <SelectTrigger className="h-11 text-sm">
+                <SelectValue placeholder="Selecione a empresa que está comprando..." />
+              </SelectTrigger>
+              <SelectContent>
+                {empresas.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Desconto negociado (%, opcional)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                placeholder="0"
+                className={cn('h-11 text-sm', NO_SPINNER)}
+                value={descontoPercentual}
+                onChange={(e) => setDescontoPercentual(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Local de entrega (opcional)</Label>
+              <Input
+                placeholder="ex: Depósito Ribeirão Preto"
+                className="h-11 text-sm"
+                value={localEntrega}
+                onChange={(e) => setLocalEntrega(e.target.value)}
+              />
+            </div>
+          </div>
 
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>

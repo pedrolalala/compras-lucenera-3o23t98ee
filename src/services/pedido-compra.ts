@@ -102,6 +102,12 @@ export interface CriarPedidoLoteInput {
   // SPEC-057: empresa por pedido (ver CriarPedidoInput).
   empresa_id?: string
   perfil?: string
+  // SPEC-155 (P3): desconto negociado no pedido (%, aplicado sobre
+  // valor_total pela RPC) e local de entrega (texto livre) -- os dois
+  // opcionais, default preserva o comportamento anterior à migration
+  // 20260921_155_modal_compra_desconto_local_entrega.
+  desconto_percentual?: number
+  local_entrega?: string
 }
 
 export interface CriarPedidoLoteResult {
@@ -131,6 +137,8 @@ export async function criarPedidoCompraLote(
     p_observacao: input.observacao ?? null,
     p_empresa_id: input.empresa_id ?? null,
     p_perfil: input.perfil ?? null,
+    p_desconto_percentual: input.desconto_percentual ?? null,
+    p_local_entrega: input.local_entrega?.trim() ? input.local_entrega.trim() : null,
   })
   if (error) throw error
   return data as CriarPedidoLoteResult

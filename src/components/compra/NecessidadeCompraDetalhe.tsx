@@ -100,7 +100,14 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
     })
   }
 
-  const selectedItens = rows
+  // SPEC-155 (P2, 2026-09-21): projeto já coberto por pedido de compra em
+  // aberto (sem `item` correspondente em vw_necessidade_compra_item_orcamento)
+  // deixa de aparecer na lista -- decisão anterior (SPEC-103, parte 1 revisão
+  // 2) era mostrar a linha com checkbox desabilitado, mas usuário reverteu:
+  // lista ficava grande com projeto "atendido" sem necessidade real.
+  const rowsPendentes = rows.filter((r) => !!r.item)
+
+  const selectedItens = rowsPendentes
     .filter((r) => selectedIds.has(r.projeto_item_id) && r.item)
     .map((r) => r.item as NecessidadeCompraItemRow)
   // fornecedor_id é resolvido por produto/marca — igual em todas as linhas
@@ -120,7 +127,7 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
           <div className="py-3 px-6 text-xs text-red-500">
             Erro ao carregar detalhes. Tente novamente.
           </div>
-        ) : rows.length === 0 ? (
+        ) : rowsPendentes.length === 0 ? (
           <div className="py-3 px-6 text-xs text-slate-400 italic">
             Nenhum projeto vinculado com saldo ativo.
           </div>
@@ -158,7 +165,7 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => {
+              {rowsPendentes.map((r) => {
                 const checked = selectedIds.has(r.projeto_item_id)
                 const podeComprar = !!r.item
                 return (
