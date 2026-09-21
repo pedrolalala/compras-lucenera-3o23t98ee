@@ -16,6 +16,7 @@ import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import { AppHeader } from './components/AppHeader'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { SystemSwitcher } from './components/SystemSwitcher'
 
 const AppShell = () => {
   const location = useLocation()

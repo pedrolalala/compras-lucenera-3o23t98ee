@@ -1,5 +1,6 @@
 import { Outlet, Link } from 'react-router-dom'
 import { ThemeToggle } from './theme-toggle'
+import { SystemSwitcher } from './SystemSwitcher'
 
 export default function Layout() {
   return (
@@ -39,6 +40,7 @@ export default function Layout() {
       <div className="fixed bottom-8 right-8 z-50">
         <ThemeToggle />
       </div>
+      <SystemSwitcher currentSlug="necessidade-de-compra" />
     </div>
   )
 }
