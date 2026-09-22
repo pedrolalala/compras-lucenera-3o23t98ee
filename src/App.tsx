@@ -12,7 +12,6 @@ import Marcas from './pages/Marcas'
 import PedidosCompra from './pages/PedidosCompra'
 import Solicitacoes from './pages/Solicitacoes'
 import EntradaNotaFiscal from './pages/EntradaNotaFiscal'
-import Producao from './pages/Producao'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import { AppHeader } from './components/AppHeader'
@@ -55,7 +54,6 @@ const AppShell = () => {
             <Route path="/cotacoes" element={<Cotacoes />} />
             <Route path="/pedidos" element={<PedidosCompra />} />
             <Route path="/recebimento" element={<EntradaNotaFiscal />} />
-            <Route path="/producao" element={<Producao />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

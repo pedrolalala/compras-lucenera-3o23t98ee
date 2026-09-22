@@ -7,7 +7,6 @@ import {
   ShoppingCart,
   PackageCheck,
   Tags,
-  Factory,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,7 +18,6 @@ const navItems = [
   { to: '/pedidos', label: 'Pedidos', icon: ShoppingCart },
   { to: '/recebimento', label: 'Entrada de Nota Fiscal', icon: PackageCheck },
   { to: '/marcas', label: 'Marcas', icon: Tags },
-  { to: '/producao', label: 'Produção', icon: Factory },
 ]
 
 export function AppNav() {
