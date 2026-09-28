@@ -31,6 +31,9 @@ export interface NecessidadeCompraRow {
   // Status (cru) do pedido em aberto com entrega mais próxima — traduzir
   // com traduzirStatusPedidoCompra antes de exibir.
   status_mais_critico: string | null
+  // SPEC-166: produtos.referencia (código de referência do fabricante) — o
+  // pessoal de Compras pesquisa por ela.
+  referencia: string | null
 }
 
 export interface ProgressInfo {
@@ -100,7 +103,8 @@ function applySearchFilter(query: any, searchTerm?: string) {
   if (!trimmed) return query
 
   // SPEC-116: multi-termo em qualquer ordem — cada palavra digitada precisa
-  // casar em produto, marca ou código (não precisa ser o mesmo campo).
+  // casar em produto, marca, referência (SPEC-166) ou código (não precisa
+  // ser o mesmo campo).
   // Encadear .or() por termo faz o PostgREST AND-ar os grupos entre si.
   let q = query
   trimmed
@@ -113,12 +117,14 @@ function applySearchFilter(query: any, searchTerm?: string) {
         // dentro do .or() do PostgREST (busca só por código exato, não
         // prefixo/substring; ilike não existe para integer).
         q = q.or(
-          `produto.ilike.%${term}%,produto_codigo.eq.${parseInt(term, 10)},marca_nome.ilike.%${term}%`,
+          `produto.ilike.%${term}%,produto_codigo.eq.${parseInt(term, 10)},marca_nome.ilike.%${term}%,referencia.ilike.%${term}%`,
         )
       } else {
         // Termo não numérico nunca poderia bater em produto_codigo
         // (integer) — gerar só as condições que fazem sentido.
-        q = q.or(`produto.ilike.%${term}%,marca_nome.ilike.%${term}%`)
+        q = q.or(
+          `produto.ilike.%${term}%,marca_nome.ilike.%${term}%,referencia.ilike.%${term}%`,
+        )
       }
     })
   return q

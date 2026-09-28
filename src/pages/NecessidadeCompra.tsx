@@ -285,7 +285,7 @@ export default function NecessidadeCompra() {
                 <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <Input
-                    placeholder="Buscar por nome ou código do produto..."
+                    placeholder="Buscar por nome, referência ou código do produto..."
                     className="pl-9 bg-slate-50 border-slate-200 h-9"
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
@@ -329,7 +329,7 @@ export default function NecessidadeCompra() {
                     : `${visibleRows.length} de ${filteredRows.length} produto(s) com necessidade`}
                 </div>
                 <div className="overflow-auto flex-1" onScroll={handleScroll}>
-                  <Table className="min-w-[1050px] w-full table-fixed">
+                  <Table className="min-w-[1180px] w-full table-fixed">
                     <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                       <TableRow className="h-11">
                         <TableHead className="w-[40px] pl-4 sm:pl-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
@@ -341,6 +341,9 @@ export default function NecessidadeCompra() {
                         </TableHead>
                         <TableHead className="w-[100px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                           Código
+                        </TableHead>
+                        <TableHead className="w-[130px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                          Referência
                         </TableHead>
                         <TableHead className="w-[280px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                           Produto
@@ -368,7 +371,7 @@ export default function NecessidadeCompra() {
                     <TableBody>
                       {loading ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="h-32 text-center">
+                          <TableCell colSpan={10} className="h-32 text-center">
                             <div className="flex flex-col items-center gap-2">
                               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                               <span className="text-xs text-slate-500">Carregando...</span>
@@ -377,7 +380,7 @@ export default function NecessidadeCompra() {
                         </TableRow>
                       ) : visibleRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="h-40 text-center">
+                          <TableCell colSpan={10} className="h-40 text-center">
                             <div className="flex flex-col items-center text-slate-400">
                               <ShoppingCart className="w-10 h-10 mb-3 text-slate-300" />
                               <p className="text-slate-600 font-medium">
@@ -401,7 +404,7 @@ export default function NecessidadeCompra() {
                               key={`${r.produto_id}-detalhe`}
                               className="hover:bg-transparent"
                             >
-                              <TableCell colSpan={9} className="p-0">
+                              <TableCell colSpan={10} className="p-0">
                                 <NecessidadeCompraDetalhe
                                   produtoId={r.produto_id}
                                   onPurchased={loadData}
@@ -438,6 +441,14 @@ export default function NecessidadeCompra() {
                               <TableCell className="align-middle py-2">
                                 <span className="inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary font-mono text-xs font-semibold whitespace-nowrap">
                                   {r.produto_codigo || '-'}
+                                </span>
+                              </TableCell>
+                              <TableCell className="align-middle py-2">
+                                <span
+                                  className="block truncate font-mono text-xs text-slate-700"
+                                  title={r.referencia ?? undefined}
+                                >
+                                  {r.referencia || '-'}
                                 </span>
                               </TableCell>
                               <TableCell className="align-middle py-2">
