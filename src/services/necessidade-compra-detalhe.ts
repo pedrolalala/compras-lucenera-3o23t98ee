@@ -20,6 +20,9 @@ export interface NecessidadeCompraDetalheRow {
   // — só informativo, não implica regra automática de qual empresa comprar.
   empresa_id: string | null
   empresa_nome: string | null
+  // SPEC-174 N2b: previsão de entrega da venda de origem (orcamentos.previsao_entrega,
+  // SPEC-167) — até quando dá pra segurar a compra antes de negociar fornecedor/volume.
+  previsao_entrega: string | null
 }
 
 export async function getNecessidadeCompraDetalhe(

@@ -285,7 +285,7 @@ export default function NecessidadeCompra() {
                 <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <Input
-                    placeholder="Buscar por nome, referência ou código do produto..."
+                    placeholder="Buscar por código, referência, nome ou marca (aceita vários termos)..."
                     className="pl-9 bg-slate-50 border-slate-200 h-9"
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}

@@ -130,6 +130,43 @@ function applySearchFilter(query: any, searchTerm?: string) {
   return q
 }
 
+// SPEC-174 N4: mesma hierarquia de relevância da busca do orçamento
+// (buscar_produtos_fuzzy, SPEC-100/SPEC-116/prioridade 20260819_120) —
+// código interno exato > referência > marca > nome/descrição. Esta tela lê
+// vw_necessidade_compra (agregado de estoque/pedidos por produto), não a
+// tabela produtos, então não reaproveita a RPC do orçamento diretamente;
+// calcula a mesma ordem de prioridade aqui, em cima das linhas já filtradas
+// por applySearchFilter (que decide QUAIS linhas entram — isto só decide a
+// ORDEM).
+function termoRelevancia(row: NecessidadeCompraRow, termo: string): number {
+  const isNumeric = /^\d+$/.test(termo)
+  const lower = termo.toLowerCase()
+  if (isNumeric && row.produto_codigo != null && String(row.produto_codigo) === termo) return 5
+  if (row.referencia && row.referencia.toLowerCase().includes(lower)) return 4
+  if (row.marca_nome && row.marca_nome.toLowerCase().includes(lower)) return 3
+  if (row.produto && row.produto.toLowerCase().includes(lower)) return 2
+  return 0
+}
+
+function ordenarPorRelevancia(
+  rows: NecessidadeCompraRow[],
+  searchTerm: string,
+): NecessidadeCompraRow[] {
+  const termos = searchTerm.trim().split(/\s+/).filter(Boolean)
+  if (termos.length === 0) return rows
+
+  // Média da melhor camada batida por termo (mesmo critério do avg/GREATEST
+  // usado em buscar_produtos_fuzzy) — cada termo pode casar em um campo
+  // diferente, "arandela" no nome e "stella" na marca, por exemplo.
+  return [...rows]
+    .map((row) => ({
+      row,
+      relevancia: termos.reduce((sum, t) => sum + termoRelevancia(row, t), 0) / termos.length,
+    }))
+    .sort((a, b) => b.relevancia - a.relevancia || b.row.necessidade_compra - a.row.necessidade_compra)
+    .map((x) => x.row)
+}
+
 export async function getNecessidadeCompra(
   searchTerm?: string,
   onProgress?: (info: ProgressInfo) => void,
@@ -172,7 +209,11 @@ export async function getNecessidadeCompra(
     start += BATCH_SIZE
   }
 
-  return allRows
+  // SPEC-174 N4: sem termo de busca, mantém a ordem vinda do banco
+  // (necessidade_compra desc, já usada na paginação acima). Com termo,
+  // reordena por relevância (código > referência > marca > nome).
+  const trimmedSearch = searchTerm?.trim()
+  return trimmedSearch ? ordenarPorRelevancia(allRows, trimmedSearch) : allRows
 }
 
 export async function getEntregaFuturaPorProduto(produtoId: string): Promise<EntregaFuturaRow[]> {

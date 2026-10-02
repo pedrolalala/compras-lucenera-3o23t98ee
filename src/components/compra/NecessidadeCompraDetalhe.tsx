@@ -136,11 +136,16 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
             <TableHeader>
               <TableRow className="h-8 bg-slate-100/80 hover:bg-slate-100/80">
                 <TableHead className="pl-6 w-[5%]" />
-                <TableHead className="w-[19%] text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
+                <TableHead className="w-[15%] text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   Projeto
                 </TableHead>
                 <TableHead className="w-[11%] text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   Orçamento
+                </TableHead>
+                {/* SPEC-174 N2b: previsão de entrega da venda de origem (orcamentos.previsao_entrega,
+                    SPEC-167) — até quando a compra pode ser segurada. */}
+                <TableHead className="w-[10%] text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
+                  Previsão Entrega
                 </TableHead>
                 <TableHead className="text-slate-500 font-semibold text-[10px] uppercase tracking-wide">
                   Para quem vai
@@ -207,6 +212,14 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
                     </TableCell>
                     <TableCell className="align-middle py-1.5">
                       <span className="text-xs text-slate-500">{r.orcamento_numero ?? '—'}</span>
+                    </TableCell>
+                    {/* SPEC-174 N2b: formatação igual à usada no Orçamentos
+                        (BudgetTableRow.tsx) — split/reverse na string, sem
+                        `new Date()`, para não deslocar 1 dia por fuso. */}
+                    <TableCell className="align-middle py-1.5">
+                      <span className="text-xs text-slate-500">
+                        {r.previsao_entrega ? r.previsao_entrega.split('-').reverse().join('/') : '—'}
+                      </span>
                     </TableCell>
                     <TableCell className="align-middle py-1.5">
                       <span className="text-xs text-slate-700 font-medium">{r.cliente ?? '—'}</span>
