@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { semPrefixo } from '@/lib/numeros'
 import { Loader2, PackageCheck } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
@@ -211,7 +212,7 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
                       </span>
                     </TableCell>
                     <TableCell className="align-middle py-1.5">
-                      <span className="text-xs text-slate-500">{r.orcamento_numero ?? '—'}</span>
+                      <span className="text-xs text-slate-500">{semPrefixo(r.orcamento_numero) || '—'}</span>
                     </TableCell>
                     {/* SPEC-174 N2b: formatação igual à usada no Orçamentos
                         (BudgetTableRow.tsx) — split/reverse na string, sem

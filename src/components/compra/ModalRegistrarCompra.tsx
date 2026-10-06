@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { semPrefixo } from '@/lib/numeros'
 import {
   Dialog,
   DialogContent,
@@ -552,7 +553,7 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
                       <span className="font-mono text-slate-500">{o.projeto_codigo ?? '—'}</span>
                       <span className="text-slate-700 truncate flex-1">
                         {o.projeto_nome ?? '—'}{' '}
-                        {o.orcamento_numero ? `· ${o.orcamento_numero}` : ''}
+                        {o.orcamento_numero ? `· ${semPrefixo(o.orcamento_numero)}` : ''}
                       </span>
                       <span className="text-slate-400">
                         {o.cliente ?? ''}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { semPrefixo } from '@/lib/numeros'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -355,7 +356,7 @@ export function ModalGerarCompraItemOrcamento({
                 {linhasValidas.map((l) => (
                   <TableRow key={l.projeto_item_id}>
                     <TableCell className="text-xs text-slate-600 whitespace-nowrap">
-                      {l.orcamento_numero ?? '—'}
+                      {semPrefixo(l.orcamento_numero) || '—'}
                     </TableCell>
                     <TableCell className="text-xs text-slate-600 whitespace-nowrap">
                       {l.l_fixo ?? '—'}

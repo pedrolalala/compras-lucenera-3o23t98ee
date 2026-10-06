@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { semPrefixo } from '@/lib/numeros'
 import {
   Dialog,
   DialogContent,
@@ -189,7 +190,7 @@ export function ModalDevolucaoItem({ open, onOpenChange, item, onSuccess }: Prop
         </div>
 
         <p className="text-xs text-slate-500">
-          {item.orcamento_numero ? `Orçamento ${item.orcamento_numero}` : 'Sem orçamento vinculado'}
+          {item.orcamento_numero ? `Orçamento ${semPrefixo(item.orcamento_numero)}` : 'Sem orçamento vinculado'}
           {item.projeto_codigo ? ` · Projeto ${item.projeto_codigo}` : ''}
           {item.produto_codigo != null ? ` · Código ${item.produto_codigo}` : ''}
         </p>
