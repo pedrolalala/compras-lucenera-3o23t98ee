@@ -47,9 +47,8 @@ export function NecessidadeDetailsPanel({ produto }: Props) {
         <ChevronRight className="w-8 h-8 text-slate-300" />
         <p className="text-sm text-slate-500">
           Pra comprar por item de orçamento (L), clique no número na coluna{' '}
-          <span className="font-medium text-slate-700">Projetos</span> desta
-          linha, na tabela ao lado, e marque os L's que quer incluir no
-          pedido.
+          <span className="font-medium text-slate-700">Projetos</span> desta linha, na tabela ao
+          lado, e marque os L's que quer incluir no pedido.
         </p>
       </div>
     </div>

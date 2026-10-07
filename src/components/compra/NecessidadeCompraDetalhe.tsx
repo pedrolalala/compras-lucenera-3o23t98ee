@@ -69,9 +69,7 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
     ])
       .then(([detalheRows, itemRows]) => {
         const itemMap = new Map(itemRows.map((it) => [it.projeto_item_id, it]))
-        setRows(
-          detalheRows.map((r) => ({ ...r, item: itemMap.get(r.projeto_item_id) })),
-        )
+        setRows(detalheRows.map((r) => ({ ...r, item: itemMap.get(r.projeto_item_id) })))
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false))
@@ -212,14 +210,18 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
                       </span>
                     </TableCell>
                     <TableCell className="align-middle py-1.5">
-                      <span className="text-xs text-slate-500">{semPrefixo(r.orcamento_numero) || '—'}</span>
+                      <span className="text-xs text-slate-500">
+                        {semPrefixo(r.orcamento_numero) || '—'}
+                      </span>
                     </TableCell>
                     {/* SPEC-174 N2b: formatação igual à usada no Orçamentos
                         (BudgetTableRow.tsx) — split/reverse na string, sem
                         `new Date()`, para não deslocar 1 dia por fuso. */}
                     <TableCell className="align-middle py-1.5">
                       <span className="text-xs text-slate-500">
-                        {r.previsao_entrega ? r.previsao_entrega.split('-').reverse().join('/') : '—'}
+                        {r.previsao_entrega
+                          ? r.previsao_entrega.split('-').reverse().join('/')
+                          : '—'}
                       </span>
                     </TableCell>
                     <TableCell className="align-middle py-1.5">

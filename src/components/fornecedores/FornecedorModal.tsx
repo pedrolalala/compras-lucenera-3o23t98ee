@@ -398,8 +398,9 @@ export function FornecedorModal({
                           {...field}
                           ref={(el) => {
                             field.ref(el)
-                            ;(numeroRef as React.MutableRefObject<HTMLInputElement | null>).current =
-                              el
+                            ;(
+                              numeroRef as React.MutableRefObject<HTMLInputElement | null>
+                            ).current = el
                           }}
                         />
                       </FormControl>

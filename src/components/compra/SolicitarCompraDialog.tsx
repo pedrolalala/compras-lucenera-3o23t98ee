@@ -106,8 +106,8 @@ export function SolicitarCompraDialog({
             Solicitar Compra
           </DialogTitle>
           <DialogDescription>
-            {produto.produto} — vai para "Solicitações" aguardando aprovação, em vez de virar
-            pedido direto.
+            {produto.produto} — vai para "Solicitações" aguardando aprovação, em vez de virar pedido
+            direto.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">

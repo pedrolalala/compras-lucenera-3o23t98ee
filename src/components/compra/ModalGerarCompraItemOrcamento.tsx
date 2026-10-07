@@ -215,8 +215,7 @@ export function ModalGerarCompraItemOrcamento({
   // valor silenciosamente), e digitar >100 fazia a prévia mostrar total
   // negativo antes da RPC rejeitar.
   const descontoNum = Math.min(100, Math.max(0, parseFloat(descontoPercentual) || 0))
-  const totalComDesconto =
-    descontoNum > 0 ? totalEstimado * (1 - descontoNum / 100) : totalEstimado
+  const totalComDesconto = descontoNum > 0 ? totalEstimado * (1 - descontoNum / 100) : totalEstimado
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

@@ -421,163 +421,165 @@ export default function Marcas() {
                   const expandido = expandedFornecedoresId === m.id
                   return (
                     <>
-                    <TableRow key={m.id} className="h-14 border-b border-slate-50">
-                      <TableCell className="pl-4 sm:pl-6 align-middle py-2">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            title="Ver todos os fornecedores desta marca"
-                            className="text-slate-400 hover:text-slate-700 shrink-0"
-                            onClick={() =>
-                              setExpandedFornecedoresId((prev) => (prev === m.id ? null : m.id))
-                            }
-                          >
-                            {expandido ? (
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            ) : (
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                          <p className="text-sm font-medium text-slate-900 line-clamp-1">{m.nome}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="align-middle py-2">
-                        {isEditing ? (
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                            <Input
-                              autoFocus
-                              placeholder="Buscar fornecedor..."
-                              className="pl-8 h-9 text-sm"
-                              value={fornecedorSearch}
-                              onChange={(e) => setFornecedorSearch(e.target.value)}
-                              autoComplete="off"
-                              disabled={isSaving}
-                            />
-                            <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
-                              {loadingFornecedores ? (
-                                <div className="flex items-center justify-center py-4">
-                                  <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                                </div>
-                              ) : fornecedores.length === 0 ? (
-                                <p className="text-sm text-slate-400 text-center py-4">
-                                  Nenhum fornecedor encontrado.
-                                </p>
-                              ) : (
-                                fornecedores.map((f) => (
-                                  <button
-                                    key={f.id}
-                                    type="button"
-                                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault()
-                                      selecionarFornecedor(m.id, f)
-                                    }}
-                                  >
-                                    {f.nome}
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        ) : m.fornecedor_nome ? (
-                          <span className="text-sm text-slate-700 line-clamp-1">
-                            {m.fornecedor_nome}
-                          </span>
-                        ) : sugestaoExibivel ? (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge
-                              className={cn(
-                                'border font-medium',
-                                sugestaoExibivel.score >= LIMIAR_SUGESTAO_FORTE
-                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                                  : 'bg-amber-50 border-amber-200 text-amber-700',
-                              )}
+                      <TableRow key={m.id} className="h-14 border-b border-slate-50">
+                        <TableCell className="pl-4 sm:pl-6 align-middle py-2">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              title="Ver todos os fornecedores desta marca"
+                              className="text-slate-400 hover:text-slate-700 shrink-0"
+                              onClick={() =>
+                                setExpandedFornecedoresId((prev) => (prev === m.id ? null : m.id))
+                              }
                             >
-                              {sugestaoExibivel.score >= LIMIAR_SUGESTAO_FORTE
-                                ? 'Sugestão forte'
-                                : 'Sugestão'}
-                            </Badge>
-                            <span className="text-sm text-slate-700 line-clamp-1">
-                              {sugestaoExibivel.fornecedorNome}
-                            </span>
-                            <span className="text-xs text-slate-400 tabular-nums">
-                              {Math.round(sugestaoExibivel.score * 100)}%
-                            </span>
+                              {expandido ? (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <p className="text-sm font-medium text-slate-900 line-clamp-1">
+                              {m.nome}
+                            </p>
                           </div>
-                        ) : (
-                          <span className="text-sm text-amber-600 italic">Sem fornecedor</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right align-middle py-2">
-                        <span className="text-sm text-slate-600 tabular-nums">
-                          {m.qtd_produtos_ativos}
-                        </span>
-                      </TableCell>
-                      <TableCell className="pr-4 sm:pr-6 text-right align-middle py-2">
-                        {isEditing ? (
-                          <div className="flex justify-end gap-1">
-                            {m.fornecedor_id && (
+                        </TableCell>
+                        <TableCell className="align-middle py-2">
+                          {isEditing ? (
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                              <Input
+                                autoFocus
+                                placeholder="Buscar fornecedor..."
+                                className="pl-8 h-9 text-sm"
+                                value={fornecedorSearch}
+                                onChange={(e) => setFornecedorSearch(e.target.value)}
+                                autoComplete="off"
+                                disabled={isSaving}
+                              />
+                              <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
+                                {loadingFornecedores ? (
+                                  <div className="flex items-center justify-center py-4">
+                                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                                  </div>
+                                ) : fornecedores.length === 0 ? (
+                                  <p className="text-sm text-slate-400 text-center py-4">
+                                    Nenhum fornecedor encontrado.
+                                  </p>
+                                ) : (
+                                  fornecedores.map((f) => (
+                                    <button
+                                      key={f.id}
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-800 border-b border-slate-100 last:border-0"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault()
+                                        selecionarFornecedor(m.id, f)
+                                      }}
+                                    >
+                                      {f.nome}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          ) : m.fornecedor_nome ? (
+                            <span className="text-sm text-slate-700 line-clamp-1">
+                              {m.fornecedor_nome}
+                            </span>
+                          ) : sugestaoExibivel ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge
+                                className={cn(
+                                  'border font-medium',
+                                  sugestaoExibivel.score >= LIMIAR_SUGESTAO_FORTE
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : 'bg-amber-50 border-amber-200 text-amber-700',
+                                )}
+                              >
+                                {sugestaoExibivel.score >= LIMIAR_SUGESTAO_FORTE
+                                  ? 'Sugestão forte'
+                                  : 'Sugestão'}
+                              </Badge>
+                              <span className="text-sm text-slate-700 line-clamp-1">
+                                {sugestaoExibivel.fornecedorNome}
+                              </span>
+                              <span className="text-xs text-slate-400 tabular-nums">
+                                {Math.round(sugestaoExibivel.score * 100)}%
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-amber-600 italic">Sem fornecedor</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right align-middle py-2">
+                          <span className="text-sm text-slate-600 tabular-nums">
+                            {m.qtd_produtos_ativos}
+                          </span>
+                        </TableCell>
+                        <TableCell className="pr-4 sm:pr-6 text-right align-middle py-2">
+                          {isEditing ? (
+                            <div className="flex justify-end gap-1">
+                              {m.fornecedor_id && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-xs text-red-600 hover:bg-red-50"
+                                  disabled={isSaving}
+                                  onClick={() => removerFornecedor(m.id)}
+                                >
+                                  Remover
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 px-2 text-xs text-red-600 hover:bg-red-50"
+                                className="h-7 px-2 text-xs text-slate-500"
                                 disabled={isSaving}
-                                onClick={() => removerFornecedor(m.id)}
+                                onClick={cancelarEdicao}
                               >
-                                Remover
+                                <X className="w-3.5 h-3.5" />
                               </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-xs text-slate-500"
-                              disabled={isSaving}
-                              onClick={cancelarEdicao}
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex justify-end gap-1">
-                            {sugestaoExibivel && (
+                            </div>
+                          ) : (
+                            <div className="flex justify-end gap-1">
+                              {sugestaoExibivel && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                  disabled={isSaving}
+                                  onClick={() =>
+                                    selecionarFornecedor(m.id, {
+                                      id: sugestaoExibivel.fornecedorId,
+                                      nome: sugestaoExibivel.fornecedorNome,
+                                    })
+                                  }
+                                >
+                                  <Check className="w-3.5 h-3.5 mr-1" />
+                                  Confirmar
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
                                 disabled={isSaving}
-                                onClick={() =>
-                                  selecionarFornecedor(m.id, {
-                                    id: sugestaoExibivel.fornecedorId,
-                                    nome: sugestaoExibivel.fornecedorNome,
-                                  })
-                                }
+                                onClick={() => iniciarEdicao(m.id)}
                               >
-                                <Check className="w-3.5 h-3.5 mr-1" />
-                                Confirmar
+                                <Pencil className="w-3.5 h-3.5 mr-1" />
+                                Editar
                               </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                              disabled={isSaving}
-                              onClick={() => iniciarEdicao(m.id)}
-                            >
-                              <Pencil className="w-3.5 h-3.5 mr-1" />
-                              Editar
-                            </Button>
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                    {expandido && (
-                      <TableRow key={`${m.id}-fornecedores`} className="hover:bg-transparent">
-                        <TableCell colSpan={4} className="p-0">
-                          <FornecedoresDaMarcaPanel marcaId={m.id} />
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
-                    )}
+                      {expandido && (
+                        <TableRow key={`${m.id}-fornecedores`} className="hover:bg-transparent">
+                          <TableCell colSpan={4} className="p-0">
+                            <FornecedoresDaMarcaPanel marcaId={m.id} />
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </>
                   )
                 })

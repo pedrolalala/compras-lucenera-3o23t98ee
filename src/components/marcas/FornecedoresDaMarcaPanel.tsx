@@ -35,7 +35,11 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
       const data = await getFornecedoresDaMarca(marcaId)
       setFornecedores(data)
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao carregar fornecedores.', variant: 'destructive' })
+      toast({
+        title: 'Erro',
+        description: 'Falha ao carregar fornecedores.',
+        variant: 'destructive',
+      })
     } finally {
       setLoading(false)
     }

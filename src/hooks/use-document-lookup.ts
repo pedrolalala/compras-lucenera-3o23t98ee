@@ -35,9 +35,7 @@ export function useCepLookup() {
             onResult(endereco)
           }
         } catch {
-          onError(
-            'Não foi possível buscar o CEP. Preencha o endereço manualmente.',
-          )
+          onError('Não foi possível buscar o CEP. Preencha o endereço manualmente.')
         } finally {
           setLoading(false)
         }
@@ -58,11 +56,7 @@ export function useCnpjLookup() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
   const buscar = useCallback(
-    (
-      cnpj: string,
-      onResult: (dados: DadosCnpj) => void,
-      onError: (message: string) => void,
-    ) => {
+    (cnpj: string, onResult: (dados: DadosCnpj) => void, onError: (message: string) => void) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
       const digits = (cnpj || '').replace(/\D/g, '')
       if (digits.length !== 14) return
@@ -77,9 +71,7 @@ export function useCnpjLookup() {
             onResult(dados)
           }
         } catch {
-          onError(
-            'Não foi possível buscar o CNPJ. Preencha os dados manualmente.',
-          )
+          onError('Não foi possível buscar o CNPJ. Preencha os dados manualmente.')
         } finally {
           setLoading(false)
         }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
+import { getUsuarioRoleCached } from '@/lib/usuario-role-cache'
 
 export interface SistemaPermitido {
   id: string
@@ -56,13 +57,11 @@ export function useSistemasPermitidos(currentSlug: string) {
     async function load() {
       setLoading(true)
 
-      const { data: usuarioRow } = await supabase
-        .from('usuarios')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle()
+      // SPEC-123: cache compartilhado com use-auth.tsx (quando aplicável) —
+      // evita duplicar esta mesma query de rede a cada carregamento.
+      const role = await getUsuarioRoleCached(userId)
 
-      if (usuarioRow?.role === 'admin') {
+      if (role === 'admin') {
         const { data } = await supabase
           .from('systems')
           .select('id, name, link, icon_name, display_order, slug')

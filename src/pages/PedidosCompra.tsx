@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -9,12 +10,36 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, X, RefreshCw, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog'
+import {
+  Search,
+  X,
+  RefreshCw,
+  ShoppingCart,
+  ChevronDown,
+  ChevronRight,
+  Ban,
+  Loader2,
+} from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { StatusBadge } from '@/components/StatusBadge'
 import { PedidoParcelasPanel } from '@/components/compra/PedidoParcelasPanel'
-import { getPedidosCompra, type PedidoCompraRow } from '@/services/pedido-compra'
+import {
+  getPedidosCompra,
+  cancelarPedidoCompra,
+  STATUS_PEDIDO_COMPRA_CANCELAVEL,
+  type PedidoCompraRow,
+} from '@/services/pedido-compra'
 
 function fmtBRL(n: number | null) {
   if (n == null) return '—'
@@ -35,6 +60,9 @@ export default function PedidosCompra() {
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [pedidoParaCancelar, setPedidoParaCancelar] = useState<PedidoCompraRow | null>(null)
+  const [motivoCancelamento, setMotivoCancelamento] = useState('')
+  const [cancelando, setCancelando] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -59,6 +87,31 @@ export default function PedidosCompra() {
 
   function toggleExpand(pedidoId: string) {
     setExpandedId((prev) => (prev === pedidoId ? null : pedidoId))
+  }
+
+  function handleCancelClick(e: React.MouseEvent, pedido: PedidoCompraRow) {
+    e.stopPropagation()
+    setMotivoCancelamento('')
+    setPedidoParaCancelar(pedido)
+  }
+
+  async function handleConfirmCancel() {
+    if (!pedidoParaCancelar) return
+    setCancelando(true)
+    try {
+      await cancelarPedidoCompra(pedidoParaCancelar.id, motivoCancelamento)
+      toast({ title: 'Pedido cancelado', description: `Pedido #${pedidoParaCancelar.numero}.` })
+      setPedidoParaCancelar(null)
+      await loadData()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao cancelar pedido',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setCancelando(false)
+    }
   }
 
   return (
@@ -118,30 +171,31 @@ export default function PedidosCompra() {
             <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
               <TableRow className="h-11">
                 <TableHead className="w-[4%] pl-4 sm:pl-6" />
-                <TableHead className="w-[14%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[13%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Número
                 </TableHead>
                 <TableHead className="text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Fornecedor
                 </TableHead>
-                <TableHead className="w-[12%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[11%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Emissão
                 </TableHead>
-                <TableHead className="w-[13%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[12%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Condições
                 </TableHead>
-                <TableHead className="w-[12%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[11%] text-right text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Valor Total
                 </TableHead>
-                <TableHead className="w-[10%] pr-4 sm:pr-6 text-slate-600 font-semibold text-xs uppercase tracking-wide">
+                <TableHead className="w-[10%] text-slate-600 font-semibold text-xs uppercase tracking-wide">
                   Status
                 </TableHead>
+                <TableHead className="w-[9%] pr-4 sm:pr-6" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={8} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                       <span className="text-xs text-slate-500">Carregando...</span>
@@ -150,7 +204,7 @@ export default function PedidosCompra() {
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-40 text-center">
+                  <TableCell colSpan={8} className="h-40 text-center">
                     <div className="flex flex-col items-center text-slate-400">
                       <ShoppingCart className="w-10 h-10 mb-3 text-slate-300" />
                       <p className="text-slate-600 font-medium">Nenhum pedido de compra ainda</p>
@@ -160,6 +214,7 @@ export default function PedidosCompra() {
               ) : (
                 rows.flatMap((r) => {
                   const isExpanded = expandedId === r.id
+                  const podeCancelar = STATUS_PEDIDO_COMPRA_CANCELAVEL.includes(r.status)
                   const rowEl = (
                     <TableRow
                       key={r.id}
@@ -196,14 +251,27 @@ export default function PedidosCompra() {
                           {fmtBRL(r.valor_total)}
                         </span>
                       </TableCell>
-                      <TableCell className="pr-4 sm:pr-6 align-middle py-2">
+                      <TableCell className="align-middle py-2">
                         <StatusBadge status={r.status} />
+                      </TableCell>
+                      <TableCell className="pr-4 sm:pr-6 align-middle py-2 text-right">
+                        {podeCancelar && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={(e) => handleCancelClick(e, r)}
+                          >
+                            <Ban className="w-3.5 h-3.5 mr-1" />
+                            Cancelar
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
                   const detailRow = isExpanded ? (
                     <TableRow key={`${r.id}-detalhe`} className="hover:bg-transparent">
-                      <TableCell colSpan={7} className="p-0">
+                      <TableCell colSpan={8} className="p-0">
                         <PedidoParcelasPanel
                           pedidoId={r.id}
                           pedidoNumero={r.numero}
@@ -220,6 +288,43 @@ export default function PedidosCompra() {
           </Table>
         </div>
       </div>
+
+      <AlertDialog
+        open={pedidoParaCancelar != null}
+        onOpenChange={(open) => {
+          if (!open) setPedidoParaCancelar(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar Pedido #{pedidoParaCancelar?.numero}</AlertDialogTitle>
+            <AlertDialogDescription>
+              O pedido deixa de contar como "em aberto" na Necessidade de Compra e as parcelas ainda
+              não pagas são canceladas junto. Essa ação não pode ser desfeita pela tela.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            placeholder="Motivo do cancelamento (opcional)"
+            value={motivoCancelamento}
+            onChange={(e) => setMotivoCancelamento(e.target.value)}
+            disabled={cancelando}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelando}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmCancel()
+              }}
+              disabled={cancelando}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {cancelando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Cancelar Pedido
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

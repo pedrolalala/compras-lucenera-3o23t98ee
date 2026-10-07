@@ -128,7 +128,10 @@ export async function getFornecedoresDaMarca(marcaId: string): Promise<Fornecedo
   return (data ?? []) as FornecedorDaMarca[]
 }
 
-export async function vincularFornecedorAMarca(fornecedorId: string, marcaId: string): Promise<void> {
+export async function vincularFornecedorAMarca(
+  fornecedorId: string,
+  marcaId: string,
+): Promise<void> {
   const { error } = await (supabase as any)
     .from('contatos')
     .update({ marca_id: marcaId })

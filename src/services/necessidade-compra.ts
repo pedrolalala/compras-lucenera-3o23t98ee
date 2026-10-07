@@ -122,9 +122,7 @@ function applySearchFilter(query: any, searchTerm?: string) {
       } else {
         // Termo não numérico nunca poderia bater em produto_codigo
         // (integer) — gerar só as condições que fazem sentido.
-        q = q.or(
-          `produto.ilike.%${term}%,marca_nome.ilike.%${term}%,referencia.ilike.%${term}%`,
-        )
+        q = q.or(`produto.ilike.%${term}%,marca_nome.ilike.%${term}%,referencia.ilike.%${term}%`)
       }
     })
   return q
@@ -163,7 +161,9 @@ function ordenarPorRelevancia(
       row,
       relevancia: termos.reduce((sum, t) => sum + termoRelevancia(row, t), 0) / termos.length,
     }))
-    .sort((a, b) => b.relevancia - a.relevancia || b.row.necessidade_compra - a.row.necessidade_compra)
+    .sort(
+      (a, b) => b.relevancia - a.relevancia || b.row.necessidade_compra - a.row.necessidade_compra,
+    )
     .map((x) => x.row)
 }
 

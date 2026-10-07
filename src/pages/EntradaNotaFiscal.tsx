@@ -4,7 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -24,7 +30,12 @@ import {
   type NotaFiscalCompraRow,
   type ProdutoBusca,
 } from '@/services/notas-fiscais-compra'
-import { getFornecedores, getEmpresas, type Fornecedor, type Empresa } from '@/services/pedido-compra'
+import {
+  getFornecedores,
+  getEmpresas,
+  type Fornecedor,
+  type Empresa,
+} from '@/services/pedido-compra'
 
 function fmtBRL(n: number | null) {
   if (n == null) return '—'
@@ -270,8 +281,8 @@ export default function EntradaNotaFiscal() {
 
               {naoEncontrado && (
                 <p className="text-sm text-red-600 mt-3">
-                  Nenhum pedido encontrado com esse número. Confira e tente novamente, ou use
-                  "Não tenho pedido" acima se essa compra nunca teve pedido no sistema.
+                  Nenhum pedido encontrado com esse número. Confira e tente novamente, ou use "Não
+                  tenho pedido" acima se essa compra nunca teve pedido no sistema.
                 </p>
               )}
 
@@ -301,7 +312,9 @@ export default function EntradaNotaFiscal() {
                           <li key={idx}>
                             {it.quantidade}x {it.produto_nome}{' '}
                             {it.produto_codigo && (
-                              <span className="font-mono text-slate-400">({it.produto_codigo})</span>
+                              <span className="font-mono text-slate-400">
+                                ({it.produto_codigo})
+                              </span>
                             )}
                           </li>
                         ))}
@@ -440,7 +453,9 @@ export default function EntradaNotaFiscal() {
                             >
                               {p.nome}{' '}
                               {p.codigo_produto != null && (
-                                <span className="font-mono text-slate-400">({p.codigo_produto})</span>
+                                <span className="font-mono text-slate-400">
+                                  ({p.codigo_produto})
+                                </span>
                               )}
                             </button>
                           ))

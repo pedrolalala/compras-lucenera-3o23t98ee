@@ -25,7 +25,9 @@ export interface PedidoParaEntrada {
 export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaEntrada | null> {
   const { data: pedido, error } = await (supabase as any)
     .from('pedidos_compra')
-    .select('id, numero, status, valor_total, condicoes_pagamento, contatos!fornecedor_id(nome), empresas(nome)')
+    .select(
+      'id, numero, status, valor_total, condicoes_pagamento, contatos!fornecedor_id(nome), empresas(nome)',
+    )
     .ilike('numero', numero.trim())
     .maybeSingle()
 

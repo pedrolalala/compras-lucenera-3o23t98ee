@@ -50,7 +50,11 @@ export default function Solicitacoes() {
       const data = await getSolicitacoesCompra(aba)
       setRows(data)
     } catch {
-      toast({ title: 'Erro', description: 'Falha ao carregar solicitações.', variant: 'destructive' })
+      toast({
+        title: 'Erro',
+        description: 'Falha ao carregar solicitações.',
+        variant: 'destructive',
+      })
     } finally {
       setLoading(false)
     }
@@ -104,7 +108,10 @@ export default function Solicitacoes() {
     setProcessandoId(row.id)
     try {
       const result = await aprovarSolicitacaoCompra(row.id, row.custo_unitario)
-      toast({ title: 'Solicitação aprovada', description: `Pedido gerado (${result.pedido_compra_id.slice(0, 8)}...)` })
+      toast({
+        title: 'Solicitação aprovada',
+        description: `Pedido gerado (${result.pedido_compra_id.slice(0, 8)}...)`,
+      })
       loadData()
     } catch (err: any) {
       toast({
@@ -121,7 +128,10 @@ export default function Solicitacoes() {
     setProcessandoId(row.id)
     try {
       await rejeitarSolicitacaoCompra(row.id)
-      toast({ title: 'Solicitação rejeitada', description: 'O item volta para a Necessidade de Compra.' })
+      toast({
+        title: 'Solicitação rejeitada',
+        description: 'O item volta para a Necessidade de Compra.',
+      })
       loadData()
     } catch (err: any) {
       toast({
@@ -193,14 +203,17 @@ export default function Solicitacoes() {
                   ) : rows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-10 text-sm text-slate-400">
-                        Nenhuma solicitação {ABAS.find((a) => a.value === aba)?.label.toLowerCase()}.
+                        Nenhuma solicitação {ABAS.find((a) => a.value === aba)?.label.toLowerCase()}
+                        .
                       </TableCell>
                     </TableRow>
                   ) : (
                     rows.map((r) => (
                       <TableRow key={r.id} className="h-16">
                         <TableCell className="text-sm">
-                          <p className="font-medium text-slate-800 line-clamp-1">{r.produto_nome}</p>
+                          <p className="font-medium text-slate-800 line-clamp-1">
+                            {r.produto_nome}
+                          </p>
                           {r.produto_codigo && (
                             <span className="font-mono text-xs text-slate-400">
                               {r.produto_codigo}
