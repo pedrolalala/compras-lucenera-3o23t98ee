@@ -259,7 +259,9 @@ export default function EstoqueProdutos() {
                       <p className="text-sm font-medium text-slate-900 leading-snug line-clamp-2">
                         {r.produto}
                       </p>
-                      {r.sku && <p className="text-xs text-slate-400 mt-0.5">SKU: {r.sku}</p>}
+                      {r.referencia && (
+                        <p className="text-xs text-slate-400 mt-0.5">Ref: {r.referencia}</p>
+                      )}
                     </TableCell>
                     <TableCell className="hidden md:table-cell align-middle py-2">
                       <span className="text-sm text-slate-600">{r.marca || '—'}</span>

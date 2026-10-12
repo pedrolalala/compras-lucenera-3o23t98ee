@@ -173,14 +173,14 @@ export async function buscarProdutosParaEntrada(termo: string): Promise<ProdutoB
   const trimmed = termo.trim()
   if (!trimmed) return []
   // SPEC-116: multi-termo em qualquer ordem — cada palavra digitada
-  // precisa casar em nome, referência ou sku (não precisa ser o mesmo
+  // precisa casar em nome ou referência (não precisa ser o mesmo
   // campo). Encadear .or() por termo faz o PostgREST AND-ar os grupos.
   let query = (supabase as any).from('produtos').select('id, nome, codigo_produto').limit(20)
   trimmed
     .split(/\s+/)
     .filter(Boolean)
     .forEach((term) => {
-      query = query.or(`nome.ilike.%${term}%,referencia.ilike.%${term}%,sku.ilike.%${term}%`)
+      query = query.or(`nome.ilike.%${term}%,referencia.ilike.%${term}%`)
     })
   const { data, error } = await query
   if (error) throw error
