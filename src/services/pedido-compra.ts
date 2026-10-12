@@ -188,8 +188,9 @@ export async function getProdutoImpostos(
   produtoId: string,
   fornecedorId?: string | null,
 ): Promise<ProdutoImpostos> {
+  // SPEC-193 C2: custo/impostos só pela vw_produtos_custo (Administração).
   const { data: produto, error } = await (supabase as any)
-    .from('produtos')
+    .from('vw_produtos_custo')
     .select('preco_custo, icms_entrada, ipi_entrada, porc_st')
     .eq('id', produtoId)
     .maybeSingle()
@@ -233,8 +234,9 @@ export async function getProdutoImpostosBulk(
   const result = new Map<string, ProdutoImpostos>()
   if (produtoIds.length === 0) return result
 
+  // SPEC-193 C2: custo/impostos só pela vw_produtos_custo (Administração).
   const { data: produtos, error } = await (supabase as any)
-    .from('produtos')
+    .from('vw_produtos_custo')
     .select('id, preco_custo, icms_entrada, ipi_entrada, porc_st')
     .in('id', produtoIds)
   if (error) throw error
