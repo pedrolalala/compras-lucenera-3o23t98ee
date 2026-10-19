@@ -476,9 +476,11 @@ export const STATUS_PEDIDO_COMPRA: { value: string; label: string }[] = [
 
 export const STATUS_PEDIDO_COMPRA_ABERTO = ['aguardando_aprovar', 'aprovado', 'parcialmente_recebido']
 
-export async function aprovarPedidoCompra(pedidoId: string): Promise<void> {
-  const { error } = await (supabase as any).rpc('aprovar_pedido_compra', { p_pedido_id: pedidoId })
+/** SPEC-209 F: aprovado entra no Contas a Pagar; `parcelas` = 0 quando não há condição de pagamento. */
+export async function aprovarPedidoCompra(pedidoId: string): Promise<{ parcelas: number }> {
+  const { data, error } = await (supabase as any).rpc('aprovar_pedido_compra', { p_pedido_id: pedidoId })
   if (error) throw error
+  return { parcelas: Number(data?.parcelas) || 0 }
 }
 
 export interface ItemDoPedido {

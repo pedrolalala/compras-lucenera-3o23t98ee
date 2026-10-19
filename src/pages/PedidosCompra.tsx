@@ -175,8 +175,20 @@ export default function PedidosCompra() {
     e.stopPropagation()
     setAprovandoId(pedido.id)
     try {
-      await aprovarPedidoCompra(pedido.id)
-      toast({ title: `Pedido #${pedido.numero} aprovado`, description: 'O fornecedor confirmou.' })
+      const r = await aprovarPedidoCompra(pedido.id)
+      toast(
+        r.parcelas > 0
+          ? {
+              title: `Pedido #${pedido.numero} aprovado`,
+              description: `${r.parcelas} parcela(s) já no Contas a Pagar do Dashboard Financeiro.`,
+            }
+          : {
+              title: `Pedido #${pedido.numero} aprovado, mas sem parcelas`,
+              description:
+                'Sem condição de pagamento ele não entra no Contas a Pagar. Abra o pedido e lance as parcelas.',
+              variant: 'destructive',
+            },
+      )
       await loadData()
     } catch (err: any) {
       toast({
@@ -197,8 +209,8 @@ export default function PedidosCompra() {
             Pedidos de Compra
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Aguardando aprovar → Aprovado (fornecedor confirmou) → Concluído pela entrada da
-            mercadoria. Edite enquanto o pedido aguarda aprovação.
+            Aguardando aprovar → Aprovado (fornecedor confirmou; as parcelas entram no Contas a Pagar)
+            → Concluído pela entrada da mercadoria. Edite enquanto o pedido aguarda aprovação.
           </p>
         </div>
         <Button
