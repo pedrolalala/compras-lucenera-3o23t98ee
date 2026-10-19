@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { semPrefixo } from '@/lib/numeros'
 import { cn } from '@/lib/utils'
 import {
@@ -31,12 +31,15 @@ import { Loader2, PackageCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import {
   criarPedidoCompraLote,
+  gerarParcelasPedidoCompra,
   getEmpresas,
+  getPrazoMedioFornecedor,
   getProdutoImpostosBulk,
+  upsertObservacaoProdutoFornecedor,
   vincularOrigemPedidoItem,
   type Empresa,
 } from '@/services/pedido-compra'
-import type { NecessidadeCompraItemRow } from '@/services/necessidade-compra-item'
+import type { LinhaCarrinho } from '@/services/necessidade-compra-item'
 import {
   CampoPercentual,
   TotaisCompra,
@@ -44,6 +47,8 @@ import {
   calcularCustoItem,
   percentualParaCampo,
 } from '@/components/compra/custo-compra'
+import { ObservacaoCaixaFechada } from '@/components/compra/ObservacaoCaixaFechada'
+import { useArrastavel } from '@/components/compra/use-arrastavel'
 
 // SPEC-155 (P3): remove as setinhas de incremento nativas dos campos
 // numéricos deste modal -- pedido explícito do relatório (atrapalhavam
@@ -52,41 +57,39 @@ import {
 const NO_SPINNER =
   '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]'
 
-// SPEC-040 — Fluxo B ("Por Item de Orçamento"). Modelado sobre
-// ModalPedidoLote.tsx (Fluxo A, não alterado), mas com duas diferenças
-// centrais exigidas pela SPEC:
-//   - a chave de cada linha é projeto_item_id (não produto_id) — o mesmo
-//     produto_id pode aparecer 2+ vezes no lote (mesmo produto em L Fixos
-//     diferentes, do mesmo orçamento ou de orçamentos distintos), então o
-//     mapeamento de resultado -> vínculo de origem é feito por ÍNDICE do
-//     array (criar_pedido_compra_lote preserva a ordem de p_itens), nunca
-//     por produto_id;
-//   - o vínculo de origem (vincular_origem_pedido_compra_item) é chamado
-//     SEMPRE, para cada linha, e uma falha aparece como toast de erro claro
-//     (P-03) — não é engolido silenciosamente como em ModalPedidoLote.tsx.
+// SPEC-209 A: "Fechar pedido" do carrinho da Necessidade de Compra — um só caminho para montar o
+// pedido (antes havia o lote por produto inteiro e o por L de um produto só).
+//   - cada linha é um L (projeto_item_id) ou um produto inteiro sem L com saldo;
+//   - o mesmo produto pode vir em várias linhas (L diferentes): o vínculo de origem é feito por
+//     ÍNDICE do array (criar_pedido_compra_lote preserva a ordem de p_itens), nunca por produto_id;
+//   - vínculo de origem obrigatório para linha de L (P-03): falha aparece como toast claro.
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  itens: NecessidadeCompraItemRow[]
+  itens: LinhaCarrinho[]
   fornecedorId: string
   fornecedorNome: string
   onSuccess: () => void
 }
 
 interface LinhaItem {
-  projeto_item_id: string
+  chave: string
+  projeto_item_id: string | null
   produto_id: string
   produto: string
   produto_codigo: string | null
   orcamento_numero: string | null
   l_fixo: string | null
+  empresa_nome: string | null
   quantidade: string
   // SPEC-209 B: preço de custo (já com desconto) + ST/IPI/outras despesas em % (sem ICMS)
   custoLiquido: string
   stPerc: string
   ipiPerc: string
   outrasPerc: string
+  observacaoFornecedor: string | null
+  qtdMinima: number | null
 }
 
 export function ModalGerarCompraItemOrcamento({
@@ -98,6 +101,7 @@ export function ModalGerarCompraItemOrcamento({
   onSuccess,
 }: Props) {
   const { toast } = useToast()
+  const arrastar = useArrastavel(open)
 
   const [linhas, setLinhas] = useState<LinhaItem[]>([])
   const [numero, setNumero] = useState('')
@@ -105,46 +109,59 @@ export function ModalGerarCompraItemOrcamento({
   const [condicoesPagamento, setCondicoesPagamento] = useState('')
   const [observacao, setObservacao] = useState('')
   const [loading, setLoading] = useState(false)
-  // SPEC-155 (P3): empresa emitente (mesmo padrão já obrigatório em
-  // ModalPedidoLote.tsx, Fluxo A -- este modal, Fluxo B, nunca coletava isso,
-  // então todo pedido gerado por aqui ficava com empresa_id nulo).
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [empresaId, setEmpresaId] = useState('')
-  // SPEC-155 (P3): desconto negociado (%) e local de entrega -- novos campos
-  // pedidos no relatório, ambos opcionais.
+  const [perfil, setPerfil] = useState('')
   const [descontoPercentual, setDescontoPercentual] = useState('')
   const [localEntrega, setLocalEntrega] = useState('')
+  const [prazoMedio, setPrazoMedio] = useState<{ dias: number; pedidos: number } | null>(null)
+  const [salvandoObs, setSalvandoObs] = useState<string | null>(null)
+
+  // SPEC-209 A4: já vem com a empresa da venda quando todas as linhas são da mesma empresa.
+  const empresaDasVendas = useMemo(() => {
+    const ids = new Set(itens.map((i) => i.empresa_id).filter(Boolean))
+    return ids.size === 1 ? (Array.from(ids)[0] as string) : ''
+  }, [itens])
 
   useEffect(() => {
     if (!open) return
     setLinhas(
       itens.map((it) => ({
+        chave: it.chave,
         projeto_item_id: it.projeto_item_id,
         produto_id: it.produto_id,
         produto: it.produto,
         produto_codigo: it.produto_codigo,
         orcamento_numero: it.orcamento_numero,
         l_fixo: it.l_fixo,
+        empresa_nome: it.empresa_nome,
         quantidade: String(it.pendente_item),
         custoLiquido: it.preco_custo != null ? String(it.preco_custo) : '',
         stPerc: '',
         ipiPerc: '',
         outrasPerc: '',
+        observacaoFornecedor: null,
+        qtdMinima: null,
       })),
     )
     setNumero('')
     setDataPrevista('')
     setCondicoesPagamento('')
     setObservacao('')
-    setEmpresaId('')
+    setEmpresaId(empresaDasVendas)
+    setPerfil('')
     setDescontoPercentual('')
     setLocalEntrega('')
+    setPrazoMedio(null)
     getEmpresas()
       .then(setEmpresas)
       .catch(() => setEmpresas([]))
+    getPrazoMedioFornecedor(fornecedorId)
+      .then(setPrazoMedio)
+      .catch(() => setPrazoMedio(null))
 
     getProdutoImpostosBulk(
-      itens.map((it) => it.produto_id),
+      Array.from(new Set(itens.map((it) => it.produto_id))),
       fornecedorId || null,
     )
       .then((impostos) => {
@@ -159,25 +176,47 @@ export function ModalGerarCompraItemOrcamento({
               stPerc: percentualParaCampo(dados.porcStPerc),
               ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
               outrasPerc: percentualParaCampo(dados.despesasPerc),
+              observacaoFornecedor: dados.observacaoFornecedor,
+              qtdMinima: dados.qtdMinima,
             }
           }),
         )
       })
       .catch(() => {
         // silencioso — pré-preenchimento de custo é conveniência, não obrigatório.
-        // Não confundir com o vínculo de origem (P-03), que É obrigatório e
-        // nunca falha silenciosamente — ver handleSubmit.
       })
-  }, [open, itens, fornecedorId])
+  }, [open, itens, fornecedorId, empresaDasVendas])
 
   function atualizarLinha(
-    projetoItemId: string,
+    chave: string,
     campo: 'quantidade' | 'custoLiquido' | 'stPerc' | 'ipiPerc' | 'outrasPerc',
     valor: string,
   ) {
-    setLinhas((prev) =>
-      prev.map((l) => (l.projeto_item_id === projetoItemId ? { ...l, [campo]: valor } : l)),
-    )
+    setLinhas((prev) => prev.map((l) => (l.chave === chave ? { ...l, [campo]: valor } : l)))
+  }
+
+  async function salvarObservacao(produtoId: string, obs: string, qtdMinima: string) {
+    setSalvandoObs(produtoId)
+    try {
+      const qtdMinimaNum = qtdMinima.trim() ? parseFloat(qtdMinima) : null
+      await upsertObservacaoProdutoFornecedor(produtoId, fornecedorId, obs.trim() || null, qtdMinimaNum)
+      setLinhas((prev) =>
+        prev.map((l) =>
+          l.produto_id === produtoId
+            ? { ...l, observacaoFornecedor: obs.trim() || null, qtdMinima: qtdMinimaNum }
+            : l,
+        ),
+      )
+      toast({ title: 'Observação salva' })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar observação',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSalvandoObs(null)
+    }
   }
 
   const linhasValidas = linhas.map((l) => {
@@ -197,8 +236,7 @@ export function ModalGerarCompraItemOrcamento({
   const todasLinhasValidas =
     linhasValidas.length > 0 && linhasValidas.every((l) => l.qtd > 0 && l.custo > 0)
 
-  // SPEC-155 (P3): Empresa emitente passa a ser obrigatória, mesmo padrão
-  // já usado no Fluxo A (ModalPedidoLote.tsx).
+  // SPEC-155 (P3): Empresa emitente obrigatória.
   const canSubmit = todasLinhasValidas && !!empresaId && !loading
 
   // SPEC-209 B5: total dos produtos (preço de custo × qtd) e total com impostos.
@@ -211,12 +249,10 @@ export function ModalGerarCompraItemOrcamento({
     0,
   )
 
-  // SPEC-155 (P3, achado do revisor): clampa em [0, 100] tanto pra prévia
-  // quanto pro valor enviado -- sem isso, digitar negativo fazia a prévia
-  // mostrar um total "com desconto" maior que o real (submit descartava o
-  // valor silenciosamente), e digitar >100 fazia a prévia mostrar total
-  // negativo antes da RPC rejeitar.
+  // SPEC-155 (P3, achado do revisor): clampa em [0, 100] tanto pra prévia quanto pro valor enviado.
   const descontoNum = Math.min(100, Math.max(0, parseFloat(descontoPercentual) || 0))
+
+  const empresasDasLinhas = Array.from(new Set(itens.map((i) => i.empresa_nome).filter(Boolean)))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -239,16 +275,16 @@ export function ModalGerarCompraItemOrcamento({
         condicoes_pagamento: condicoesPagamento.trim() || undefined,
         observacao: observacao.trim() || undefined,
         empresa_id: empresaId,
+        perfil: perfil || undefined,
         desconto_percentual: descontoNum > 0 ? descontoNum : undefined,
         local_entrega: localEntrega.trim() || undefined,
       })
 
-      // Vínculo de origem OBRIGATÓRIO (P-03) — mapeado por índice, porque
-      // criar_pedido_compra_lote preserva a ordem de p_itens e o mesmo
-      // produto_id pode se repetir entre linhas (L Fixos diferentes).
+      // Vínculo de origem OBRIGATÓRIO (P-03) para linha de L — mapeado por índice.
       const falhas: string[] = []
       for (let i = 0; i < linhasValidas.length; i++) {
         const linha = linhasValidas[i]
+        if (!linha.projeto_item_id) continue
         const itemCriado = result.itens[i]
         if (!itemCriado) {
           falhas.push(
@@ -271,22 +307,34 @@ export function ModalGerarCompraItemOrcamento({
         }
       }
 
+      // SPEC-209 C2: com condição de pagamento, as parcelas saem junto (previsão de pagamento).
+      let avisoParcelas = ''
+      if (condicoesPagamento.trim()) {
+        try {
+          await gerarParcelasPedidoCompra(result.pedido_id)
+        } catch {
+          avisoParcelas =
+            ' Parcelas não geradas: condição de pagamento não reconhecida (use 30/60/90 ou datas 15/11, 15/12).'
+        }
+      }
+
       if (falhas.length > 0) {
         toast({
           title: `Pedido #${result.numero} criado, mas ${falhas.length} vínculo(s) de origem falharam`,
-          description: falhas.join(' | '),
+          description: falhas.join(' | ') + avisoParcelas,
           variant: 'destructive',
         })
       } else {
         toast({
-          title: 'Compra gerada',
-          description: `Pedido #${result.numero} criado com ${result.qtd_itens} item(ns), todos vinculados à origem.`,
+          title: 'Pedido gerado — Aguardando aprovar',
+          description: `Pedido #${result.numero} com ${result.qtd_itens} item(ns).${avisoParcelas}`,
+          variant: avisoParcelas ? 'destructive' : undefined,
         })
       }
       onSuccess()
     } catch (err: any) {
       toast({
-        title: 'Erro ao gerar compra',
+        title: 'Erro ao gerar pedido',
         description: err?.message ?? 'Tente novamente.',
         variant: 'destructive',
       })
@@ -297,23 +345,22 @@ export function ModalGerarCompraItemOrcamento({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* SPEC-155 (P3, item 1): modal aumentada (1040px -> 1440px) -- campos
-          e tabela ficavam apertados/pouco legíveis. */}
-      <DialogContent className="sm:max-w-[1440px] max-h-[92vh] overflow-y-auto p-8">
-        <DialogHeader>
+      {/* SPEC-155 (P3, item 1): modal larga. SPEC-209 A5: arrastável pelo título. */}
+      <DialogContent
+        className="sm:max-w-[1440px] max-h-[92vh] overflow-y-auto p-8"
+        style={arrastar.estilo}
+      >
+        <DialogHeader {...arrastar.alca}>
           <DialogTitle className="flex items-center gap-2 text-base">
             <PackageCheck className="w-4 h-4 text-emerald-600" />
-            Gerar Compra por Item de Orçamento
+            Fechar pedido de compra — {fornecedorNome}
           </DialogTitle>
+          <p className="text-xs text-slate-500">
+            Arraste pelo título para ver a tela de trás. O pedido nasce em "Aguardando aprovar" e
+            pode ser editado em Pedidos até o fornecedor confirmar.
+          </p>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-6 pt-2">
-          {/* SPEC-155 (P3, item 5): fornecedor como campo visível no corpo do
-              pedido, não só no título da modal. */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <Label className="text-xs text-slate-500 uppercase tracking-wide">Fornecedor</Label>
-            <p className="text-sm font-semibold text-slate-800">{fornecedorNome}</p>
-          </div>
-
           <div className="border border-slate-200 rounded-lg overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50">
@@ -333,62 +380,69 @@ export function ModalGerarCompraItemOrcamento({
               </TableHeader>
               <TableBody>
                 {linhasValidas.map((l) => (
-                  <TableRow key={l.projeto_item_id}>
+                  <TableRow key={l.chave}>
                     <TableCell className="text-xs text-slate-600 whitespace-nowrap">
                       {semPrefixo(l.orcamento_numero) || '—'}
+                      {l.empresa_nome && (
+                        <span className="block text-[10px] text-slate-400">{l.empresa_nome}</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-slate-600 whitespace-nowrap">
-                      {l.l_fixo ?? '—'}
+                      {l.l_fixo ?? (l.projeto_item_id ? '—' : 'Produto inteiro')}
                     </TableCell>
                     <TableCell className="text-sm">
                       <p className="font-medium text-slate-800 line-clamp-1">{l.produto}</p>
                       {l.produto_codigo && (
                         <span className="font-mono text-xs text-slate-400">{l.produto_codigo}</span>
                       )}
+                      <div>
+                        <ObservacaoCaixaFechada
+                          observacao={l.observacaoFornecedor}
+                          qtdMinima={l.qtdMinima}
+                          salvando={salvandoObs === l.produto_id}
+                          onSalvar={(obs, qtd) => salvarObservacao(l.produto_id, obs, qtd)}
+                        />
+                      </div>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right align-top">
                       <Input
                         type="number"
                         min="0.001"
                         step="0.001"
                         className={cn('h-9 text-sm text-right', NO_SPINNER)}
                         value={l.quantidade}
-                        onChange={(e) =>
-                          atualizarLinha(l.projeto_item_id, 'quantidade', e.target.value)
-                        }
+                        onChange={(e) => atualizarLinha(l.chave, 'quantidade', e.target.value)}
                       />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right align-top">
                       <Input
                         type="number"
                         min="0"
                         step="0.01"
                         className={cn('h-9 text-sm text-right', NO_SPINNER)}
                         value={l.custoLiquido}
-                        onChange={(e) =>
-                          atualizarLinha(l.projeto_item_id, 'custoLiquido', e.target.value)
-                        }
+                        onChange={(e) => atualizarLinha(l.chave, 'custoLiquido', e.target.value)}
                       />
                     </TableCell>
                     <TableCell className="align-top">
                       <CampoPercentual
                         value={l.stPerc}
                         valorReais={l.valorStNum}
-                        onChange={(v) => atualizarLinha(l.projeto_item_id, 'stPerc', v)}
+                        onChange={(v) => atualizarLinha(l.chave, 'stPerc', v)}
                       />
                     </TableCell>
                     <TableCell className="align-top">
                       <CampoPercentual
                         value={l.ipiPerc}
                         valorReais={l.valorIpiNum}
-                        onChange={(v) => atualizarLinha(l.projeto_item_id, 'ipiPerc', v)}
+                        onChange={(v) => atualizarLinha(l.chave, 'ipiPerc', v)}
                       />
                     </TableCell>
                     <TableCell className="align-top">
                       <CampoPercentual
                         value={l.outrasPerc}
                         valorReais={l.valorOutrasNum}
-                        onChange={(v) => atualizarLinha(l.projeto_item_id, 'outrasPerc', v)}
+                        onChange={(v) => atualizarLinha(l.chave, 'outrasPerc', v)}
                       />
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold text-slate-700">
@@ -406,25 +460,42 @@ export function ModalGerarCompraItemOrcamento({
             descontoPedidoPerc={descontoNum}
           />
 
-          <div className="space-y-2">
-            <Label className="text-sm text-slate-600">
-              Empresa <span className="text-red-500">*</span>
-            </Label>
-            <Select value={empresaId} onValueChange={setEmpresaId}>
-              <SelectTrigger className="h-11 text-sm">
-                <SelectValue placeholder="Selecione a empresa que está comprando..." />
-              </SelectTrigger>
-              <SelectContent>
-                {empresas.map((emp) => (
-                  <SelectItem key={emp.id} value={emp.id}>
-                    {emp.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">
+                Empresa <span className="text-red-500">*</span>
+              </Label>
+              <Select value={empresaId} onValueChange={setEmpresaId}>
+                <SelectTrigger className="h-11 text-sm">
+                  <SelectValue placeholder="Selecione a empresa que está comprando..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {empresas.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {emp.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {empresasDasLinhas.length > 0 && (
+                <p className="text-[11px] text-slate-500">
+                  Empresa da venda: {empresasDasLinhas.join(', ')}
+                  {empresasDasLinhas.length > 1 && ' — itens de empresas diferentes neste pedido'}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Perfil (opcional)</Label>
+              <Select value={perfil} onValueChange={setPerfil}>
+                <SelectTrigger className="h-11 text-sm">
+                  <SelectValue placeholder="Não informado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ribeirao">Ribeirão</SelectItem>
+                  <SelectItem value="sao_paulo">São Paulo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label className="text-sm text-slate-600">Desconto negociado (%, opcional)</Label>
               <Input
@@ -447,54 +518,54 @@ export function ModalGerarCompraItemOrcamento({
                 onChange={(e) => setLocalEntrega(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Data prevista de entrega (opcional)</Label>
+              <Input
+                type="date"
+                className="h-11 text-sm"
+                value={dataPrevista}
+                onChange={(e) => setDataPrevista(e.target.value)}
+              />
+              {/* SPEC-209 C4: só aparece quando já há pedidos deste fornecedor com entrada. */}
+              {prazoMedio && (
+                <p className="text-[11px] text-slate-500">
+                  Prazo médio deste fornecedor: {prazoMedio.dias} dia(s) (base: {prazoMedio.pedidos}{' '}
+                  pedido(s) entregue(s))
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Condições de pagamento (opcional)</Label>
+              <Input
+                placeholder="30/60/90 (dias) ou datas: 15/11, 15/12"
+                className="h-11 text-sm"
+                value={condicoesPagamento}
+                onChange={(e) => setCondicoesPagamento(e.target.value)}
+              />
+              <p className="text-[11px] text-slate-500">
+                As parcelas são geradas em partes iguais (previsão de pagamento).
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
+              <Input
+                placeholder="Gerado automaticamente se deixado em branco"
+                className="h-11 text-sm"
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-slate-600">Observação (opcional)</Label>
+              <Textarea
+                placeholder="Observações adicionais..."
+                className="text-sm resize-none"
+                rows={2}
+                value={observacao}
+                onChange={(e) => setObservacao(e.target.value)}
+              />
+            </div>
           </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
-            <Input
-              placeholder="Gerado automaticamente se deixado em branco (ex: PC-2026-0001)"
-              className="h-11 text-sm"
-              value={numero}
-              onChange={(e) => setNumero(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm text-slate-600">Data prevista de entrega (opcional)</Label>
-            <Input
-              type="date"
-              className="h-11 text-sm"
-              value={dataPrevista}
-              onChange={(e) => setDataPrevista(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm text-slate-600">Condições de pagamento (opcional)</Label>
-            <Input
-              placeholder="ex: 30/60/90 dias"
-              className="h-11 text-sm"
-              value={condicoesPagamento}
-              onChange={(e) => setCondicoesPagamento(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm text-slate-600">Observação (opcional)</Label>
-            <Textarea
-              placeholder="Observações adicionais..."
-              className="text-sm resize-none"
-              rows={3}
-              value={observacao}
-              onChange={(e) => setObservacao(e.target.value)}
-            />
-          </div>
-
-          <p className="text-xs text-slate-500">
-            O vínculo de origem com cada item de orçamento é obrigatório e é feito automaticamente
-            ao confirmar — se algum vínculo falhar, você verá um aviso específico por linha, mesmo
-            com o pedido já criado.
-          </p>
 
           <DialogFooter className="pt-4 gap-3">
             <Button
@@ -504,7 +575,7 @@ export function ModalGerarCompraItemOrcamento({
               disabled={loading}
               className="h-11"
             >
-              Cancelar
+              Voltar
             </Button>
             <Button
               type="submit"
@@ -519,7 +590,7 @@ export function ModalGerarCompraItemOrcamento({
               ) : (
                 <>
                   <PackageCheck className="w-4 h-4 mr-2" />
-                  Confirmar e Gerar Compra
+                  Confirmar pedido
                 </>
               )}
             </Button>

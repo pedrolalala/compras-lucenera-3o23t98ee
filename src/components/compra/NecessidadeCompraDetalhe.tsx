@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { semPrefixo } from '@/lib/numeros'
-import { Loader2, PackageCheck } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Button } from '@/components/ui/button'
 import {
   Table,
   TableBody,
@@ -25,13 +24,14 @@ import {
   getNecessidadeCompraItemPorProduto,
   type NecessidadeCompraItemRow,
 } from '@/services/necessidade-compra-item'
-import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
 
 interface Props {
   produtoId: string
-  // SPEC-103 (parte 1, revisão 2): notifica a tela pai depois de gerar uma
-  // compra por L aqui dentro, pra recarregar pendente/necessidade.
-  onPurchased?: () => void
+  // SPEC-209 A1: a seleção dos L fica na página (carrinho único). Abrir outro produto não perde nada.
+  selecionados: Set<string>
+  onToggleL: (item: NecessidadeCompraItemRow) => void
+  // SPEC-209 A3: 'all' ou id da empresa da venda
+  empresaFiltro: string
 }
 
 // SPEC-103 (parte 1, revisão 2): a seleção por L não fica mais num modal
@@ -47,12 +47,10 @@ interface RowComItem extends NecessidadeCompraDetalheRow {
   item?: NecessidadeCompraItemRow
 }
 
-export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
+export function NecessidadeCompraDetalhe({ produtoId, selecionados, onToggleL, empresaFiltro }: Props) {
   const [rows, setRows] = useState<RowComItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [modalCompraOpen, setModalCompraOpen] = useState(false)
 
   // SPEC-039 (P-01): painel expansível também lista os pedidos de compra
   // abertos deste produto, ao lado dos projetos com entrega futura.
@@ -77,7 +75,6 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
 
   useEffect(() => {
     loadRows()
-    setSelectedIds(new Set())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtoId])
 
@@ -90,29 +87,14 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
       .finally(() => setLoadingPedidos(false))
   }, [produtoId])
 
-  function toggleSelect(projetoItemId: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(projetoItemId)) next.delete(projetoItemId)
-      else next.add(projetoItemId)
-      return next
-    })
-  }
-
   // SPEC-155 (P2, 2026-09-21): projeto já coberto por pedido de compra em
   // aberto (sem `item` correspondente em vw_necessidade_compra_item_orcamento)
   // deixa de aparecer na lista -- decisão anterior (SPEC-103, parte 1 revisão
   // 2) era mostrar a linha com checkbox desabilitado, mas usuário reverteu:
   // lista ficava grande com projeto "atendido" sem necessidade real.
-  const rowsPendentes = rows.filter((r) => !!r.item)
-
-  const selectedItens = rowsPendentes
-    .filter((r) => selectedIds.has(r.projeto_item_id) && r.item)
-    .map((r) => r.item as NecessidadeCompraItemRow)
-  // fornecedor_id é resolvido por produto/marca — igual em todas as linhas
-  // deste produto.
-  const fornecedorId = selectedItens[0]?.fornecedor_id ?? ''
-  const fornecedorNome = selectedItens[0]?.fornecedor_nome ?? ''
+  const rowsPendentes = rows.filter(
+    (r) => !!r.item && (empresaFiltro === 'all' || r.item.empresa_id === empresaFiltro),
+  )
 
   return (
     <div className="bg-slate-50/70 border-b border-slate-100 divide-y divide-slate-100">
@@ -170,7 +152,7 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
             </TableHeader>
             <TableBody>
               {rowsPendentes.map((r) => {
-                const checked = selectedIds.has(r.projeto_item_id)
+                const checked = selecionados.has(r.projeto_item_id)
                 const podeComprar = !!r.item
                 return (
                   <TableRow
@@ -184,7 +166,7 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
                       <Checkbox
                         checked={checked}
                         disabled={!podeComprar}
-                        onCheckedChange={() => toggleSelect(r.projeto_item_id)}
+                        onCheckedChange={() => r.item && onToggleL(r.item)}
                         title={
                           podeComprar
                             ? undefined
@@ -258,23 +240,6 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
               })}
             </TableBody>
           </Table>
-        )}
-
-        {selectedIds.size > 0 && (
-          <div className="flex items-center justify-between px-6 py-2 bg-emerald-50 border-t border-emerald-100">
-            <span className="text-xs font-medium text-emerald-800">
-              {selectedIds.size} L(s) selecionado(s)
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={() => setModalCompraOpen(true)}
-            >
-              <PackageCheck className="w-3.5 h-3.5 mr-1.5" />
-              Gerar Compra ({selectedIds.size})
-            </Button>
-          </div>
         )}
       </div>
 
@@ -358,20 +323,6 @@ export function NecessidadeCompraDetalhe({ produtoId, onPurchased }: Props) {
           </Table>
         )}
       </div>
-
-      <ModalGerarCompraItemOrcamento
-        open={modalCompraOpen}
-        onOpenChange={setModalCompraOpen}
-        itens={selectedItens}
-        fornecedorId={fornecedorId}
-        fornecedorNome={fornecedorNome}
-        onSuccess={() => {
-          setModalCompraOpen(false)
-          setSelectedIds(new Set())
-          loadRows()
-          onPurchased?.()
-        }}
-      />
     </div>
   )
 }

@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw } from 'lucide-react'
+import { StatusBadge } from '@/components/StatusBadge'
 import { useToast } from '@/hooks/use-toast'
 import {
   buscarPedidoPorNumero,
@@ -35,6 +36,7 @@ import {
   getEmpresas,
   type Fornecedor,
   type Empresa,
+  registrarEntradaPedidoCompra,
 } from '@/services/pedido-compra'
 
 function fmtBRL(n: number | null) {
@@ -60,6 +62,8 @@ export default function EntradaNotaFiscal() {
   const [buscando, setBuscando] = useState(false)
   const [pedido, setPedido] = useState<PedidoParaEntrada | null>(null)
   const [naoEncontrado, setNaoEncontrado] = useState(false)
+  // SPEC-209 E: quanto chegou agora de cada item (começa com o que falta chegar)
+  const [chegou, setChegou] = useState<Record<string, string>>({})
 
   const [fornecedorBusca, setFornecedorBusca] = useState('')
   const [fornecedorResultados, setFornecedorResultados] = useState<Fornecedor[]>([])
@@ -156,6 +160,11 @@ export default function EntradaNotaFiscal() {
       const result = await buscarPedidoPorNumero(numeroPedido.trim())
       if (result) {
         setPedido(result)
+        setChegou(
+          Object.fromEntries(
+            result.itens.map((it) => [it.id, String(Math.max(0, it.quantidade - it.qtd_recebida))]),
+          ),
+        )
         setValor(result.valor_total != null ? String(result.valor_total) : '')
       } else {
         setNaoEncontrado(true)
@@ -173,6 +182,7 @@ export default function EntradaNotaFiscal() {
 
   function limparFormulario() {
     setPedido(null)
+    setChegou({})
     setNumeroPedido('')
     setFornecedorSelecionado(null)
     setFornecedorBusca('')
@@ -191,13 +201,25 @@ export default function EntradaNotaFiscal() {
     limparFormulario()
   }
 
-  const podeRegistrar = modo === 'pedido' ? !!pedido : !!fornecedorSelecionado
+  // SPEC-209 E: pedido cancelado ou já concluído não recebe entrada.
+  const pedidoFechado = !!pedido && ['cancelado', 'recebido'].includes(pedido.status)
+  const itensChegando = (pedido?.itens ?? [])
+    .map((it) => ({ pedido_item_id: it.id, quantidade: parseFloat((chegou[it.id] ?? '').replace(',', '.')) || 0 }))
+    .filter((it) => it.quantidade > 0)
+  const podeRegistrar =
+    modo === 'pedido' ? !!pedido && !pedidoFechado && itensChegando.length > 0 : !!fornecedorSelecionado
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!podeRegistrar || !numeroNf.trim()) return
     setSalvando(true)
     try {
+      // SPEC-209 E: primeiro a quantidade por item (o banco confere o que falta chegar e muda o
+      // status do pedido para Concluído / Concluído parcialmente); depois a nota.
+      let statusNovo: string | null = null
+      if (modo === 'pedido' && pedido) {
+        statusNovo = (await registrarEntradaPedidoCompra(pedido.id, itensChegando)).status
+      }
       await criarNotaFiscalCompra({
         pedido_compra_id: modo === 'pedido' ? pedido!.id : null,
         fornecedor_id: modo === 'avulsa' ? fornecedorSelecionado!.id : null,
@@ -209,7 +231,15 @@ export default function EntradaNotaFiscal() {
         observacao: observacao || null,
         arquivo,
       })
-      toast({ title: 'Entrada de nota fiscal registrada' })
+      toast({
+        title: 'Entrada de nota fiscal registrada',
+        description:
+          statusNovo === 'recebido'
+            ? 'Todos os itens chegaram: pedido Concluído.'
+            : statusNovo === 'parcialmente_recebido'
+              ? 'Ainda falta chegar item: pedido Concluído parcialmente.'
+              : undefined,
+      })
       limparFormulario()
       carregarHistorico()
     } catch (err: any) {
@@ -304,21 +334,63 @@ export default function EntradaNotaFiscal() {
                     <p className="text-slate-500">Valor do pedido</p>
                     <p className="font-semibold">{fmtBRL(pedido.valor_total)}</p>
                   </div>
+                  <div className="sm:col-span-4 flex items-center gap-2">
+                    <span className="text-slate-500">Situação:</span>
+                    <StatusBadge status={pedido.status} />
+                    {pedidoFechado && (
+                      <span className="text-xs text-red-600">
+                        Este pedido não recebe mais entrada.
+                      </span>
+                    )}
+                  </div>
                   {pedido.itens.length > 0 && (
                     <div className="sm:col-span-4">
-                      <p className="text-slate-500 mb-1">Itens</p>
-                      <ul className="text-xs text-slate-600 space-y-0.5">
-                        {pedido.itens.map((it, idx) => (
-                          <li key={idx}>
-                            {it.quantidade}x {it.produto_nome}{' '}
-                            {it.produto_codigo && (
-                              <span className="font-mono text-slate-400">
-                                ({it.produto_codigo})
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
+                      <p className="text-slate-500 mb-1">
+                        Itens — informe quanto chegou agora (pedido fica Concluído quando tudo chegar)
+                      </p>
+                      <table className="w-full text-xs bg-white rounded border border-slate-200">
+                        <thead>
+                          <tr className="text-slate-500 border-b border-slate-200">
+                            <th className="text-left font-medium p-2">Produto</th>
+                            <th className="text-right font-medium p-2 w-20">Pedido</th>
+                            <th className="text-right font-medium p-2 w-24">Já chegou</th>
+                            <th className="text-right font-medium p-2 w-20">Falta</th>
+                            <th className="text-right font-medium p-2 w-32">Chegou agora</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pedido.itens.map((it) => {
+                            const falta = Math.max(0, it.quantidade - it.qtd_recebida)
+                            return (
+                              <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                                <td className="p-2 text-slate-700">
+                                  {it.produto_codigo && (
+                                    <span className="font-mono text-slate-400 mr-1.5">
+                                      {it.produto_codigo}
+                                    </span>
+                                  )}
+                                  {it.produto_nome}
+                                </td>
+                                <td className="p-2 text-right tabular-nums">{it.quantidade}</td>
+                                <td className="p-2 text-right tabular-nums">{it.qtd_recebida}</td>
+                                <td className="p-2 text-right tabular-nums font-semibold">{falta}</td>
+                                <td className="p-2 text-right">
+                                  <Input
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="h-8 w-24 ml-auto text-right text-sm"
+                                    value={chegou[it.id] ?? ''}
+                                    disabled={pedidoFechado || falta <= 0}
+                                    onChange={(e) =>
+                                      setChegou((prev) => ({ ...prev, [it.id]: e.target.value }))
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>

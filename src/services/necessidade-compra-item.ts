@@ -26,6 +26,9 @@ export interface NecessidadeCompraItemRow {
   q_entrega_futura: number
   qtd_coberta_por_pedido_aberto: number
   pendente_item: number
+  // SPEC-209 A3 (migration 226): empresa da venda de origem
+  empresa_id: string | null
+  empresa_nome: string | null
 }
 
 // SPEC-103 (parte 1): a granularidade por L Fixo, antes numa aba separada
@@ -47,4 +50,52 @@ export async function getNecessidadeCompraItemPorProduto(
 
   if (error) throw error
   return (data as NecessidadeCompraItemRow[]) ?? []
+}
+
+/** SPEC-209 A: todos os L com saldo a comprar (poucas dezenas) — base do filtro de empresa e do carrinho. */
+export async function getNecessidadeCompraItensTodos(): Promise<NecessidadeCompraItemRow[]> {
+  const { data, error } = await (supabase as any)
+    .from('vw_necessidade_compra_item_orcamento')
+    .select('*')
+    .order('orcamento_numero', { ascending: true })
+    .order('l_fixo', { ascending: true, nullsFirst: false })
+  if (error) throw error
+  return (data as NecessidadeCompraItemRow[]) ?? []
+}
+
+// SPEC-209 A1/A2: uma linha do pedido em montagem. Vem de um L (projeto_item_id) ou, quando o
+// produto não tem L com saldo (ex.: estoque negativo herdado), do produto inteiro.
+export interface LinhaCarrinho {
+  chave: string
+  projeto_item_id: string | null
+  produto_id: string
+  produto: string
+  produto_codigo: string | null
+  orcamento_numero: string | null
+  l_fixo: string | null
+  pendente_item: number
+  preco_custo: number | null
+  fornecedor_id: string
+  fornecedor_nome: string
+  empresa_id: string | null
+  empresa_nome: string | null
+}
+
+export function linhaDoL(it: NecessidadeCompraItemRow): LinhaCarrinho | null {
+  if (!it.fornecedor_id) return null
+  return {
+    chave: `l:${it.projeto_item_id}`,
+    projeto_item_id: it.projeto_item_id,
+    produto_id: it.produto_id,
+    produto: it.produto,
+    produto_codigo: it.produto_codigo != null ? String(it.produto_codigo) : null,
+    orcamento_numero: it.orcamento_numero,
+    l_fixo: it.l_fixo,
+    pendente_item: Number(it.pendente_item) || 0,
+    preco_custo: it.preco_custo,
+    fornecedor_id: it.fornecedor_id,
+    fornecedor_nome: it.fornecedor_nome ?? '',
+    empresa_id: it.empresa_id,
+    empresa_nome: it.empresa_nome,
+  }
 }

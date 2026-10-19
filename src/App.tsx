@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
@@ -7,6 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/hooks/use-auth'
 import { AppHeader } from './components/AppHeader'
+import { AvisoChegadaPedidos } from './components/compra/AvisoChegadaPedidos'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { SystemSwitcher } from './components/SystemSwitcher'
 
@@ -17,7 +18,6 @@ const EstoqueProdutos = lazy(() => import('./pages/EstoqueProdutos'))
 const Cotacoes = lazy(() => import('./pages/Cotacoes'))
 const Marcas = lazy(() => import('./pages/Marcas'))
 const PedidosCompra = lazy(() => import('./pages/PedidosCompra'))
-const Solicitacoes = lazy(() => import('./pages/Solicitacoes'))
 const EntradaNotaFiscal = lazy(() => import('./pages/EntradaNotaFiscal'))
 const Login = lazy(() => import('./pages/Login'))
 const NotFound = lazy(() => import('./pages/NotFound'))
@@ -48,6 +48,7 @@ const AppShell = () => {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-slate-50">
       <AppHeader />
+      <AvisoChegadaPedidos />
       <main
         className={cn(
           'w-full flex-1 min-h-0',
@@ -63,7 +64,8 @@ const AppShell = () => {
               <Route path="/necessidade-compra" element={<NecessidadeCompra />} />
               <Route path="/estoque" element={<EstoqueProdutos />} />
               <Route path="/marcas" element={<Marcas />} />
-              <Route path="/solicitacoes" element={<Solicitacoes />} />
+              {/* SPEC-209 D1: "Solicitações" deixou de existir; tudo fica em Pedidos. */}
+              <Route path="/solicitacoes" element={<Navigate to="/pedidos" replace />} />
               <Route path="/cotacoes" element={<Cotacoes />} />
               <Route path="/pedidos" element={<PedidosCompra />} />
               <Route path="/recebimento" element={<EntradaNotaFiscal />} />

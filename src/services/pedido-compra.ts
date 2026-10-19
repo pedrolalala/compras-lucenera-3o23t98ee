@@ -153,9 +153,9 @@ export async function criarPedidoCompraLote(
 // SPEC-060 — cancelar pedido de compra
 // -----------------------------------------------------------------------
 
-// Pedido em rascunho/aprovado/enviado pode ser cancelado pela tela;
-// recebido/parcialmente_recebido/já cancelado mostram erro claro.
-export const STATUS_PEDIDO_COMPRA_CANCELAVEL = ['rascunho', 'aprovado', 'enviado']
+// SPEC-209 D5: cancela quem ainda não teve entrada (Aguardando aprovar ou Aprovado).
+// Concluído/Concluído parcialmente/já cancelado mostram erro claro.
+export const STATUS_PEDIDO_COMPRA_CANCELAVEL = ['aguardando_aprovar', 'aprovado']
 
 export async function cancelarPedidoCompra(pedidoId: string, motivo?: string): Promise<void> {
   const { error } = await (supabase as any).rpc('cancelar_pedido_compra', {
@@ -416,6 +416,13 @@ export interface PedidoCompraRow {
   fornecedor_id: string
   fornecedor_nome: string
   criado_em: string
+  // SPEC-209: usados na edição e na lista
+  empresa_id: string | null
+  empresa_nome: string | null
+  desconto_percentual: number | null
+  observacao: string | null
+  local_entrega: string | null
+  motivo_cancelamento: string | null
 }
 
 export async function getPedidosCompra(searchTerm?: string): Promise<PedidoCompraRow[]> {
@@ -427,7 +434,7 @@ export async function getPedidosCompra(searchTerm?: string): Promise<PedidoCompr
   // aplicado no cliente, sobre os 300 já carregados.
   const { data, error } = await (supabase as any)
     .from('pedidos_compra')
-    .select('*, contatos!fornecedor_id(nome)')
+    .select('*, contatos!fornecedor_id(nome), empresas(nome)')
     .order('criado_em', { ascending: false })
     .limit(300)
   if (error) throw error
@@ -435,6 +442,7 @@ export async function getPedidosCompra(searchTerm?: string): Promise<PedidoCompr
   const rows = ((data ?? []) as any[]).map((d) => ({
     ...d,
     fornecedor_nome: d.contatos?.nome ?? '—',
+    empresa_nome: d.empresas?.nome ?? null,
   })) as PedidoCompraRow[]
 
   const trimmed = searchTerm?.trim()
@@ -451,4 +459,163 @@ export async function getPedidosCompra(searchTerm?: string): Promise<PedidoCompr
     const haystack = normalize([r.numero, r.fornecedor_nome].filter(Boolean).join(' '))
     return terms.every((t) => haystack.includes(t))
   })
+}
+
+// -----------------------------------------------------------------------
+// SPEC-209 D/E/C — ciclo do pedido (reunião 19/10 com Vinicius e Débora)
+// -----------------------------------------------------------------------
+
+// Status gravados -> nome na tela. 'enviado'/'rascunho' deixaram de existir (migration 226).
+export const STATUS_PEDIDO_COMPRA: { value: string; label: string }[] = [
+  { value: 'aguardando_aprovar', label: 'Aguardando aprovar' },
+  { value: 'aprovado', label: 'Aprovado' },
+  { value: 'parcialmente_recebido', label: 'Concluído parcialmente' },
+  { value: 'recebido', label: 'Concluído' },
+  { value: 'cancelado', label: 'Cancelado' },
+]
+
+export const STATUS_PEDIDO_COMPRA_ABERTO = ['aguardando_aprovar', 'aprovado', 'parcialmente_recebido']
+
+export async function aprovarPedidoCompra(pedidoId: string): Promise<void> {
+  const { error } = await (supabase as any).rpc('aprovar_pedido_compra', { p_pedido_id: pedidoId })
+  if (error) throw error
+}
+
+export interface ItemDoPedido {
+  id: string
+  produto_id: string
+  produto_nome: string
+  produto_codigo: string | null
+  quantidade: number
+  qtd_recebida: number
+  custo_unitario: number
+  custo_liquido: number | null
+  valor_ipi: number | null
+  valor_st: number | null
+  valor_outras_despesas: number | null
+}
+
+export async function getItensDoPedido(pedidoId: string): Promise<ItemDoPedido[]> {
+  const { data, error } = await (supabase as any)
+    .from('pedido_compra_itens')
+    .select(
+      'id, produto_id, quantidade, qtd_recebida, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, produtos(nome, codigo_produto)',
+    )
+    .eq('pedido_id', pedidoId)
+    .order('criado_em', { ascending: true })
+  if (error) throw error
+  return ((data ?? []) as any[]).map((i) => ({
+    id: i.id,
+    produto_id: i.produto_id,
+    produto_nome: i.produtos?.nome ?? '—',
+    produto_codigo: i.produtos?.codigo_produto != null ? String(i.produtos.codigo_produto) : null,
+    quantidade: Number(i.quantidade) || 0,
+    qtd_recebida: Number(i.qtd_recebida) || 0,
+    custo_unitario: Number(i.custo_unitario) || 0,
+    custo_liquido: i.custo_liquido != null ? Number(i.custo_liquido) : null,
+    valor_ipi: i.valor_ipi != null ? Number(i.valor_ipi) : null,
+    valor_st: i.valor_st != null ? Number(i.valor_st) : null,
+    valor_outras_despesas: i.valor_outras_despesas != null ? Number(i.valor_outras_despesas) : null,
+  }))
+}
+
+export interface EditarPedidoItem {
+  pedido_item_id: string
+  quantidade?: number
+  custo_unitario?: number
+  custo_liquido?: number | null
+  valor_ipi?: number | null
+  valor_st?: number | null
+  valor_outras_despesas?: number | null
+  remover?: boolean
+}
+
+export interface EditarPedidoInput {
+  pedido_id: string
+  itens: EditarPedidoItem[]
+  data_prevista_entrega: string | null
+  condicoes_pagamento: string | null
+  observacao: string | null
+  desconto_percentual: number | null
+  empresa_id: string | null
+  local_entrega: string | null
+}
+
+export async function editarPedidoCompra(
+  input: EditarPedidoInput,
+): Promise<{ valor_total: number; parcelas_criadas: number }> {
+  const { data, error } = await (supabase as any).rpc('editar_pedido_compra', {
+    p_pedido_id: input.pedido_id,
+    p_itens: input.itens,
+    p_data_prevista_entrega: input.data_prevista_entrega || null,
+    p_condicoes_pagamento: input.condicoes_pagamento?.trim() || null,
+    p_observacao: input.observacao?.trim() || null,
+    p_desconto_percentual: input.desconto_percentual || null,
+    p_empresa_id: input.empresa_id || null,
+    p_local_entrega: input.local_entrega?.trim() || null,
+  })
+  if (error) throw error
+  return data
+}
+
+/** E: quantidade que chegou de cada item; o status do pedido muda sozinho. Não mexe em estoque. */
+export async function registrarEntradaPedidoCompra(
+  pedidoId: string,
+  itens: { pedido_item_id: string; quantidade: number }[],
+): Promise<{ status: string }> {
+  const { data, error } = await (supabase as any).rpc('registrar_entrada_pedido_compra', {
+    p_pedido_id: pedidoId,
+    p_itens: itens,
+  })
+  if (error) throw error
+  return data
+}
+
+/** C4: prazo médio (dias) entre o pedido e a primeira entrada, nos pedidos já recebidos do fornecedor. */
+export async function getPrazoMedioFornecedor(
+  fornecedorId: string,
+): Promise<{ dias: number; pedidos: number } | null> {
+  if (!fornecedorId) return null
+  const { data, error } = await (supabase as any).rpc('prazo_medio_entrega_fornecedor', {
+    p_fornecedor_id: fornecedorId,
+  })
+  if (error || !data || !data.pedidos) return null
+  return { dias: Number(data.dias) || 0, pedidos: Number(data.pedidos) || 0 }
+}
+
+export interface PedidoChegando {
+  id: string
+  numero: string
+  status: string
+  data_prevista_entrega: string
+  fornecedor_nome: string
+}
+
+function dataIso(d: Date) {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+/** C3: pedidos em aberto com entrega prevista de hoje até daqui a `dias` dias. */
+export async function getPedidosChegando(dias = 10): Promise<PedidoChegando[]> {
+  const hoje = new Date()
+  const ate = new Date(hoje.getTime() + dias * 86400000)
+  const { data, error } = await (supabase as any)
+    .from('pedidos_compra')
+    .select('id, numero, status, data_prevista_entrega, contatos!fornecedor_id(nome)')
+    .in('status', STATUS_PEDIDO_COMPRA_ABERTO)
+    .gte('data_prevista_entrega', dataIso(hoje))
+    .lte('data_prevista_entrega', dataIso(ate))
+    .order('data_prevista_entrega', { ascending: true })
+  if (error) throw error
+  return ((data ?? []) as any[]).map((p) => ({
+    id: p.id,
+    numero: p.numero,
+    status: p.status,
+    data_prevista_entrega: p.data_prevista_entrega,
+    fornecedor_nome: p.contatos?.nome ?? '—',
+  }))
 }

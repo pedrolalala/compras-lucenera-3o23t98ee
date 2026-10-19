@@ -19,7 +19,14 @@ export interface PedidoParaEntrada {
   empresa_nome: string | null
   valor_total: number | null
   condicoes_pagamento: string | null
-  itens: Array<{ produto_nome: string; produto_codigo: string | null; quantidade: number }>
+  // SPEC-209 E: id e qtd_recebida para a entrada por item
+  itens: Array<{
+    id: string
+    produto_nome: string
+    produto_codigo: string | null
+    quantidade: number
+    qtd_recebida: number
+  }>
 }
 
 export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaEntrada | null> {
@@ -36,8 +43,9 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
 
   const { data: itens } = await (supabase as any)
     .from('pedido_compra_itens')
-    .select('quantidade, produtos(nome, codigo_produto)')
+    .select('id, quantidade, qtd_recebida, produtos(nome, codigo_produto)')
     .eq('pedido_id', pedido.id)
+    .order('criado_em', { ascending: true })
 
   return {
     id: pedido.id,
@@ -48,9 +56,11 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
     valor_total: pedido.valor_total,
     condicoes_pagamento: pedido.condicoes_pagamento,
     itens: ((itens ?? []) as any[]).map((i) => ({
+      id: i.id,
       produto_nome: i.produtos?.nome ?? '—',
       produto_codigo: i.produtos?.codigo_produto ? String(i.produtos.codigo_produto) : null,
-      quantidade: i.quantidade,
+      quantidade: Number(i.quantidade) || 0,
+      qtd_recebida: Number(i.qtd_recebida) || 0,
     })),
   }
 }

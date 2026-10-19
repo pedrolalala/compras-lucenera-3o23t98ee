@@ -57,12 +57,12 @@ export interface PedidoCompraAbertoRow {
 // SPEC-039 (P-02): vocabulário de status decidido pelo usuário — mapeamento
 // 1:1 do enum real de pedidos_compra.status para rótulo em português, sem
 // incluir o estágio de cotação (fora do escopo desta SPEC).
+// SPEC-209 D2: nomes combinados na reunião de 19/10 (migration 226).
 export const STATUS_PEDIDO_COMPRA_LABEL: Record<string, string> = {
-  rascunho: 'Pendente',
+  aguardando_aprovar: 'Aguardando aprovar',
   aprovado: 'Aprovado',
-  enviado: 'Pedido Emitido',
-  parcialmente_recebido: 'Em Trânsito',
-  recebido: 'Recebido',
+  parcialmente_recebido: 'Concluído parcialmente',
+  recebido: 'Concluído',
   cancelado: 'Cancelado',
 }
 

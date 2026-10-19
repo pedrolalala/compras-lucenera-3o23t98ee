@@ -26,23 +26,25 @@ import {
   ChevronDown,
   ChevronRight,
   PackageCheck,
-  ClipboardList,
+  Trash2,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
 import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
-import { ModalPedidoLote } from '@/components/compra/ModalPedidoLote'
+import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
-// SPEC-066 Frente F: "Solicitar Compra" — caminho opcional que passa por
-// aprovação em "Solicitações" antes de virar pedido (coexiste com
-// "Comprar"/Pedido em Lote diretos, não os substitui).
-import { SolicitarCompraDialog } from '@/components/compra/SolicitarCompraDialog'
 import {
   getNecessidadeCompra,
   type NecessidadeCompraRow,
   type ProgressInfo,
 } from '@/services/necessidade-compra'
+import {
+  getNecessidadeCompraItensTodos,
+  linhaDoL,
+  type LinhaCarrinho,
+  type NecessidadeCompraItemRow,
+} from '@/services/necessidade-compra-item'
 
 const VISIBLE_BATCH = 100
 
@@ -70,16 +72,17 @@ export default function NecessidadeCompra() {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
   const [modalOpen, setModalOpen] = useState(false)
   const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
-  const [produtoParaSolicitar, setProdutoParaSolicitar] = useState<NecessidadeCompraRow | null>(
-    null,
-  )
-  const [solicitarDialogOpen, setSolicitarDialogOpen] = useState(false)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
 
-  // SPEC-030 Parte 2: filtro por marca + seleção múltipla para Pedido em Lote
+  // SPEC-030 Parte 2: filtro por marca
   const [selectedMarca, setSelectedMarca] = useState<string>('all')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [loteModalOpen, setLoteModalOpen] = useState(false)
+  // SPEC-209 A1/A2/A6: pedido em montagem ("carrinho") — L de vários produtos e vendas, ou o
+  // produto inteiro quando não tem L. Não se perde ao abrir/fechar produtos. Um fornecedor só.
+  const [carrinho, setCarrinho] = useState<Record<string, LinhaCarrinho>>({})
+  const [fecharPedidoOpen, setFecharPedidoOpen] = useState(false)
+  // SPEC-209 A3: L com saldo a comprar (com a empresa da venda) e filtro de empresa
+  const [itensOrc, setItensOrc] = useState<NecessidadeCompraItemRow[]>([])
+  const [selectedEmpresa, setSelectedEmpresa] = useState<string>('all')
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -90,11 +93,23 @@ export default function NecessidadeCompra() {
     setLoading(true)
     setProgress(null)
     try {
-      const data = await getNecessidadeCompra(debouncedSearch || undefined, (info) => {
-        setProgress(info)
-      })
+      const [data, itens] = await Promise.all([
+        getNecessidadeCompra(debouncedSearch || undefined, (info) => {
+          setProgress(info)
+        }),
+        getNecessidadeCompraItensTodos(),
+      ])
       setRows(data)
-      setSelectedIds(new Set())
+      setItensOrc(itens)
+      // tira do carrinho o L que não tem mais saldo (comprado em outro lugar)
+      const pendentes = new Set(itens.map((i) => i.projeto_item_id))
+      setCarrinho((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).filter(
+            ([, l]) => !l.projeto_item_id || pendentes.has(l.projeto_item_id),
+          ),
+        ),
+      )
     } catch {
       toast({
         title: 'Erro',
@@ -113,7 +128,7 @@ export default function NecessidadeCompra() {
 
   useEffect(() => {
     setVisibleCount(VISIBLE_BATCH)
-  }, [debouncedSearch, selectedMarca])
+  }, [debouncedSearch, selectedMarca, selectedEmpresa])
 
   const selectedProduto = useMemo(
     () => rows.find((r) => r.produto_id === selectedProdutoId) ?? null,
@@ -132,9 +147,36 @@ export default function NecessidadeCompra() {
       .sort((a, b) => a.nome.localeCompare(b.nome))
   }, [rows])
 
+  // SPEC-209 A3: empresas das vendas com L a comprar e, por produto, de quais empresas são os L.
+  const empresasDisponiveis = useMemo(() => {
+    const map = new Map<string, string>()
+    itensOrc.forEach((i) => {
+      if (i.empresa_id) map.set(i.empresa_id, i.empresa_nome ?? '—')
+    })
+    return Array.from(map.entries())
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [itensOrc])
+
+  const itensPorProduto = useMemo(() => {
+    const map = new Map<string, NecessidadeCompraItemRow[]>()
+    itensOrc.forEach((i) => {
+      const lista = map.get(i.produto_id) ?? []
+      lista.push(i)
+      map.set(i.produto_id, lista)
+    })
+    return map
+  }, [itensOrc])
+
   const filteredRows = useMemo(
-    () => (selectedMarca === 'all' ? rows : rows.filter((r) => r.marca_id === selectedMarca)),
-    [rows, selectedMarca],
+    () =>
+      rows.filter(
+        (r) =>
+          (selectedMarca === 'all' || r.marca_id === selectedMarca) &&
+          (selectedEmpresa === 'all' ||
+            (itensPorProduto.get(r.produto_id) ?? []).some((i) => i.empresa_id === selectedEmpresa)),
+      ),
+    [rows, selectedMarca, selectedEmpresa, itensPorProduto],
   )
 
   const visibleRows = filteredRows.slice(0, visibleCount)
@@ -156,62 +198,124 @@ export default function NecessidadeCompra() {
   // (déficit bruto, sem descontar pedidos).
   const totalPendente = useMemo(() => rows.reduce((s, r) => s + r.pendente, 0), [rows])
 
-  // Fornecedor comum aos itens já selecionados (todas as linhas marcadas
-  // resolvem para o mesmo fornecedor_id, por construção de toggleSelect).
-  const selectedFornecedorId = useMemo(() => {
-    if (selectedIds.size === 0) return null
-    const first = rows.find((r) => selectedIds.has(r.produto_id))
-    return first?.fornecedor_id ?? null
-  }, [selectedIds, rows])
-
-  const selectedItens = useMemo(
-    () => rows.filter((r) => selectedIds.has(r.produto_id)),
-    [rows, selectedIds],
+  // SPEC-209 A: linhas do pedido em montagem
+  const linhasCarrinho = useMemo(() => Object.values(carrinho), [carrinho])
+  const fornecedorCarrinho = linhasCarrinho[0]
+    ? { id: linhasCarrinho[0].fornecedor_id, nome: linhasCarrinho[0].fornecedor_nome }
+    : null
+  const lsNoCarrinho = useMemo(
+    () => new Set(linhasCarrinho.map((l) => l.projeto_item_id).filter(Boolean) as string[]),
+    [linhasCarrinho],
+  )
+  const produtosNoCarrinho = useMemo(
+    () => new Set(linhasCarrinho.map((l) => l.produto_id)),
+    [linhasCarrinho],
   )
 
-  function toggleSelect(row: NecessidadeCompraRow) {
-    if (!row.fornecedor_id) return
-    const isSelected = selectedIds.has(row.produto_id)
-    if (!isSelected && selectedFornecedorId && selectedFornecedorId !== row.fornecedor_id) {
+  function fornecedorConfere(fornecedorId: string | null) {
+    if (!fornecedorId) return false
+    if (fornecedorCarrinho && fornecedorCarrinho.id !== fornecedorId) {
       toast({
         title: 'Fornecedor diferente',
-        description:
-          'Este item resolve para um fornecedor diferente dos já selecionados. Desmarque os itens do outro fornecedor antes de continuar, ou feche o pedido em lote atual primeiro.',
+        description: `O pedido em montagem é de ${fornecedorCarrinho.nome}. Feche ou limpe esse pedido antes de juntar itens de outro fornecedor.`,
+        variant: 'destructive',
+      })
+      return false
+    }
+    return true
+  }
+
+  // Linhas que o produto inteiro põe no pedido: os L com saldo (da empresa filtrada) ou, sem L,
+  // o produto inteiro com o pendente total.
+  function linhasDoProduto(row: NecessidadeCompraRow): LinhaCarrinho[] {
+    const ls = (itensPorProduto.get(row.produto_id) ?? []).filter(
+      (i) => selectedEmpresa === 'all' || i.empresa_id === selectedEmpresa,
+    )
+    if (ls.length > 0) return ls.map(linhaDoL).filter(Boolean) as LinhaCarrinho[]
+    if (!row.fornecedor_id || selectedEmpresa !== 'all') return []
+    return [
+      {
+        chave: `p:${row.produto_id}`,
+        projeto_item_id: null,
+        produto_id: row.produto_id,
+        produto: row.produto,
+        produto_codigo: row.produto_codigo != null ? String(row.produto_codigo) : null,
+        orcamento_numero: null,
+        l_fixo: null,
+        pendente_item: row.pendente,
+        preco_custo: row.preco_custo,
+        fornecedor_id: row.fornecedor_id,
+        fornecedor_nome: row.fornecedor_nome ?? '',
+        empresa_id: null,
+        empresa_nome: null,
+      },
+    ]
+  }
+
+  function toggleSelect(row: NecessidadeCompraRow) {
+    if (produtosNoCarrinho.has(row.produto_id)) {
+      setCarrinho((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([, l]) => l.produto_id !== row.produto_id)),
+      )
+      return
+    }
+    if (!fornecedorConfere(row.fornecedor_id)) return
+    const novas = linhasDoProduto(row)
+    if (novas.length === 0) return
+    setCarrinho((prev) => ({ ...prev, ...Object.fromEntries(novas.map((l) => [l.chave, l])) }))
+  }
+
+  function toggleL(item: NecessidadeCompraItemRow) {
+    const chave = `l:${item.projeto_item_id}`
+    if (carrinho[chave]) {
+      setCarrinho((prev) => {
+        const next = { ...prev }
+        delete next[chave]
+        return next
+      })
+      return
+    }
+    const linha = linhaDoL(item)
+    if (!linha) {
+      toast({
+        title: 'Sem fornecedor',
+        description: 'Este produto/marca não tem fornecedor cadastrado.',
         variant: 'destructive',
       })
       return
     }
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(row.produto_id)) next.delete(row.produto_id)
-      else next.add(row.produto_id)
+    if (!fornecedorConfere(linha.fornecedor_id)) return
+    // L de um produto que estava inteiro no pedido substitui a linha do produto inteiro
+    setCarrinho((prev) => {
+      const next = { ...prev }
+      delete next[`p:${item.produto_id}`]
+      next[chave] = linha
       return next
     })
   }
 
-  // Reuniao 04/08/2026: Debora filtrou por marca e nao tinha como selecionar
-  // todos de uma vez, so um por um. Seleciona todos os itens filtrados que
-  // compartilham o mesmo fornecedor resolvido (mesma regra do toggleSelect
-  // individual) — itens de fornecedor diferente sao ignorados com aviso.
+  // Reuniao 04/08/2026: Debora filtrou por marca e queria selecionar todos de uma vez. Junta no
+  // pedido os produtos filtrados do mesmo fornecedor — os de outro fornecedor ficam de fora com aviso.
   const selecionaveisFiltrados = filteredRows.filter((r) => r.fornecedor_id)
   const todosFiltradosSelecionados =
     selecionaveisFiltrados.length > 0 &&
-    selecionaveisFiltrados.every((r) => selectedIds.has(r.produto_id))
+    selecionaveisFiltrados.every((r) => produtosNoCarrinho.has(r.produto_id))
 
   function selecionarTodosFiltrados() {
     if (todosFiltradosSelecionados) {
-      setSelectedIds(new Set())
+      setCarrinho({})
       return
     }
     if (selecionaveisFiltrados.length === 0) return
-    const fornecedorAlvo = selectedFornecedorId ?? selecionaveisFiltrados[0].fornecedor_id
+    const fornecedorAlvo = fornecedorCarrinho?.id ?? selecionaveisFiltrados[0].fornecedor_id
     const compativel = selecionaveisFiltrados.filter((r) => r.fornecedor_id === fornecedorAlvo)
     const ignorados = selecionaveisFiltrados.length - compativel.length
-    setSelectedIds(new Set(compativel.map((r) => r.produto_id)))
+    const novas = compativel.flatMap((r) => linhasDoProduto(r))
+    setCarrinho((prev) => ({ ...prev, ...Object.fromEntries(novas.map((l) => [l.chave, l])) }))
     if (ignorados > 0) {
       toast({
-        title: `${compativel.length} item(ns) selecionado(s)`,
-        description: `${ignorados} item(ns) com fornecedor diferente não foram selecionados — feche este pedido primeiro ou filtre por marca/fornecedor para juntar o resto.`,
+        title: `${compativel.length} produto(s) no pedido`,
+        description: `${ignorados} produto(s) de outro fornecedor ficaram de fora — feche este pedido primeiro ou filtre por marca.`,
       })
     }
   }
@@ -247,15 +351,6 @@ export default function NecessidadeCompra() {
         <div className="flex flex-col h-full min-h-0 gap-4">
           <div className="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4 shrink-0">
             <div className="flex gap-2 w-full sm:w-auto">
-              {selectedIds.size > 0 && (
-                <Button
-                  onClick={() => setLoteModalOpen(true)}
-                  className="shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  <PackageCheck className="w-4 h-4 mr-2" />
-                  Fechar pedido em lote ({selectedIds.size})
-                </Button>
-              )}
               <Button
                 variant="outline"
                 onClick={loadData}
@@ -267,6 +362,42 @@ export default function NecessidadeCompra() {
               </Button>
             </div>
           </div>
+
+          {/* SPEC-209 A6: pedido em montagem sempre à vista */}
+          {linhasCarrinho.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 shrink-0">
+              <div className="text-sm text-emerald-900">
+                <span className="font-semibold">Pedido em montagem:</span>{' '}
+                {linhasCarrinho.length} linha(s) de {produtosNoCarrinho.size} produto(s) ·{' '}
+                {fornecedorCarrinho?.nome}
+                {(() => {
+                  const emp = Array.from(
+                    new Set(linhasCarrinho.map((l) => l.empresa_nome).filter(Boolean)),
+                  )
+                  return emp.length > 0 ? ` · venda: ${emp.join(', ')}` : ''
+                })()}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-slate-600"
+                  onClick={() => setCarrinho({})}
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Limpar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setFecharPedidoOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  <PackageCheck className="w-4 h-4 mr-2" />
+                  Fechar pedido ({linhasCarrinho.length})
+                </Button>
+              </div>
+            </div>
+          )}
 
           {!loading && rows.length > 0 && (
             <div className="flex gap-3 shrink-0">
@@ -305,6 +436,19 @@ export default function NecessidadeCompra() {
                     Limpar
                   </Button>
                 )}
+                <Select value={selectedEmpresa} onValueChange={setSelectedEmpresa}>
+                  <SelectTrigger className="w-full sm:w-[220px] h-9 bg-slate-50 border-slate-200 text-sm">
+                    <SelectValue placeholder="Todas as empresas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as empresas</SelectItem>
+                    {empresasDisponiveis.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select value={selectedMarca} onValueChange={setSelectedMarca}>
                   <SelectTrigger className="w-full sm:w-[220px] h-9 bg-slate-50 border-slate-200 text-sm">
                     <SelectValue placeholder="Todas as marcas" />
@@ -336,7 +480,7 @@ export default function NecessidadeCompra() {
                           <Checkbox
                             checked={todosFiltradosSelecionados}
                             onCheckedChange={() => selecionarTodosFiltrados()}
-                            title="Selecionar todos os itens filtrados (mesmo fornecedor)"
+                            title="Pôr no pedido todos os produtos filtrados (mesmo fornecedor)"
                           />
                         </TableHead>
                         <TableHead className="w-[100px] text-slate-600 font-semibold text-xs uppercase tracking-wide">
@@ -407,7 +551,9 @@ export default function NecessidadeCompra() {
                               <TableCell colSpan={10} className="p-0">
                                 <NecessidadeCompraDetalhe
                                   produtoId={r.produto_id}
-                                  onPurchased={loadData}
+                                  selecionados={lsNoCarrinho}
+                                  onToggleL={toggleL}
+                                  empresaFiltro={selectedEmpresa}
                                 />
                               </TableCell>
                             </TableRow>
@@ -428,13 +574,13 @@ export default function NecessidadeCompra() {
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <Checkbox
-                                  checked={selectedIds.has(r.produto_id)}
+                                  checked={produtosNoCarrinho.has(r.produto_id)}
                                   disabled={!r.fornecedor_id}
                                   onCheckedChange={() => toggleSelect(r)}
                                   title={
                                     r.fornecedor_id
-                                      ? undefined
-                                      : 'Sem fornecedor resolvido (produto/marca sem fornecedor cadastrado) — fora do Pedido em Lote'
+                                      ? 'Pôr no pedido todos os L deste produto (ou abra "Projetos" e marque só os L que quiser)'
+                                      : 'Sem fornecedor resolvido (produto/marca sem fornecedor cadastrado)'
                                   }
                                 />
                               </TableCell>
@@ -520,18 +666,6 @@ export default function NecessidadeCompra() {
                                 <div className="flex justify-end gap-1">
                                   <Button
                                     size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-xs text-slate-500 hover:bg-slate-100"
-                                    title="Solicitar Compra (passa por aprovação em Solicitações)"
-                                    onClick={() => {
-                                      setProdutoParaSolicitar(r)
-                                      setSolicitarDialogOpen(true)
-                                    }}
-                                  >
-                                    <ClipboardList className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
                                     variant="outline"
                                     className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
                                     onClick={() => {
@@ -575,21 +709,16 @@ export default function NecessidadeCompra() {
             }}
           />
 
-          <SolicitarCompraDialog
-            open={solicitarDialogOpen}
-            onOpenChange={setSolicitarDialogOpen}
-            produto={produtoParaSolicitar}
-            onSuccess={loadData}
-          />
 
-          <ModalPedidoLote
-            open={loteModalOpen}
-            onOpenChange={setLoteModalOpen}
-            itens={selectedItens}
-            fornecedorId={selectedFornecedorId ?? ''}
-            fornecedorNome={selectedItens[0]?.fornecedor_nome ?? ''}
+          <ModalGerarCompraItemOrcamento
+            open={fecharPedidoOpen}
+            onOpenChange={setFecharPedidoOpen}
+            itens={linhasCarrinho}
+            fornecedorId={fornecedorCarrinho?.id ?? ''}
+            fornecedorNome={fornecedorCarrinho?.nome ?? ''}
             onSuccess={() => {
-              setLoteModalOpen(false)
+              setFecharPedidoOpen(false)
+              setCarrinho({})
               loadData()
             }}
           />
