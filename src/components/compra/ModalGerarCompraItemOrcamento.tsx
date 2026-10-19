@@ -37,6 +37,13 @@ import {
   type Empresa,
 } from '@/services/pedido-compra'
 import type { NecessidadeCompraItemRow } from '@/services/necessidade-compra-item'
+import {
+  CampoPercentual,
+  TotaisCompra,
+  brl,
+  calcularCustoItem,
+  percentualParaCampo,
+} from '@/components/compra/custo-compra'
 
 // SPEC-155 (P3): remove as setinhas de incremento nativas dos campos
 // numéricos deste modal -- pedido explícito do relatório (atrapalhavam
@@ -75,14 +82,11 @@ interface LinhaItem {
   orcamento_numero: string | null
   l_fixo: string | null
   quantidade: string
+  // SPEC-209 B: preço de custo (já com desconto) + ST/IPI/outras despesas em % (sem ICMS)
   custoLiquido: string
-  valorIcms: string
-  valorIpi: string
-  valorSt: string
-}
-
-function round4(n: number) {
-  return Math.round(n * 10000) / 10000
+  stPerc: string
+  ipiPerc: string
+  outrasPerc: string
 }
 
 export function ModalGerarCompraItemOrcamento({
@@ -123,9 +127,9 @@ export function ModalGerarCompraItemOrcamento({
         l_fixo: it.l_fixo,
         quantidade: String(it.pendente_item),
         custoLiquido: it.preco_custo != null ? String(it.preco_custo) : '',
-        valorIcms: '',
-        valorIpi: '',
-        valorSt: '',
+        stPerc: '',
+        ipiPerc: '',
+        outrasPerc: '',
       })),
     )
     setNumero('')
@@ -149,17 +153,12 @@ export function ModalGerarCompraItemOrcamento({
             const dados = impostos.get(l.produto_id)
             if (!dados) return l
             const custoLiquido = dados.custoUnitario ?? (parseFloat(l.custoLiquido) || 0)
-            const icms =
-              custoLiquido > 0 ? round4((custoLiquido * (dados.icmsEntradaPerc ?? 0)) / 100) : 0
-            const ipi =
-              custoLiquido > 0 ? round4((custoLiquido * (dados.ipiEntradaPerc ?? 0)) / 100) : 0
-            const st = custoLiquido > 0 ? round4((custoLiquido * (dados.porcStPerc ?? 0)) / 100) : 0
             return {
               ...l,
               custoLiquido: custoLiquido > 0 ? String(custoLiquido) : l.custoLiquido,
-              valorIcms: String(icms),
-              valorIpi: String(ipi),
-              valorSt: String(st),
+              stPerc: percentualParaCampo(dados.porcStPerc),
+              ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
+              outrasPerc: percentualParaCampo(dados.despesasPerc),
             }
           }),
         )
@@ -173,7 +172,7 @@ export function ModalGerarCompraItemOrcamento({
 
   function atualizarLinha(
     projetoItemId: string,
-    campo: 'quantidade' | 'custoLiquido' | 'valorIcms' | 'valorIpi' | 'valorSt',
+    campo: 'quantidade' | 'custoLiquido' | 'stPerc' | 'ipiPerc' | 'outrasPerc',
     valor: string,
   ) {
     setLinhas((prev) =>
@@ -183,17 +182,15 @@ export function ModalGerarCompraItemOrcamento({
 
   const linhasValidas = linhas.map((l) => {
     const custoLiquido = parseFloat(l.custoLiquido) || 0
-    const valorIcms = parseFloat(l.valorIcms) || 0
-    const valorIpi = parseFloat(l.valorIpi) || 0
-    const valorSt = parseFloat(l.valorSt) || 0
+    const c = calcularCustoItem(custoLiquido, l)
     return {
       ...l,
       qtd: parseFloat(l.quantidade),
       custoLiquidoNum: custoLiquido,
-      valorIcmsNum: valorIcms,
-      valorIpiNum: valorIpi,
-      valorStNum: valorSt,
-      custo: custoLiquido + valorIcms + valorIpi + valorSt,
+      valorIpiNum: c.ipi,
+      valorStNum: c.st,
+      valorOutrasNum: c.outras,
+      custo: c.total,
     }
   })
 
@@ -204,7 +201,12 @@ export function ModalGerarCompraItemOrcamento({
   // já usado no Fluxo A (ModalPedidoLote.tsx).
   const canSubmit = todasLinhasValidas && !!empresaId && !loading
 
-  const totalEstimado = linhasValidas.reduce(
+  // SPEC-209 B5: total dos produtos (preço de custo × qtd) e total com impostos.
+  const totalProdutos = linhasValidas.reduce(
+    (s, l) => (l.qtd > 0 ? s + l.qtd * l.custoLiquidoNum : s),
+    0,
+  )
+  const totalComImpostos = linhasValidas.reduce(
     (s, l) => (l.qtd > 0 && l.custo > 0 ? s + l.qtd * l.custo : s),
     0,
   )
@@ -215,7 +217,6 @@ export function ModalGerarCompraItemOrcamento({
   // valor silenciosamente), e digitar >100 fazia a prévia mostrar total
   // negativo antes da RPC rejeitar.
   const descontoNum = Math.min(100, Math.max(0, parseFloat(descontoPercentual) || 0))
-  const totalComDesconto = descontoNum > 0 ? totalEstimado * (1 - descontoNum / 100) : totalEstimado
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -229,9 +230,9 @@ export function ModalGerarCompraItemOrcamento({
           quantidade: l.qtd,
           custo_unitario: l.custo,
           custo_liquido: l.custoLiquidoNum || undefined,
-          valor_icms: l.valorIcmsNum || undefined,
           valor_ipi: l.valorIpiNum || undefined,
           valor_st: l.valorStNum || undefined,
+          valor_outras_despesas: l.valorOutrasNum || undefined,
         })),
         numero: numero.trim() || undefined,
         data_prevista_entrega: dataPrevista || undefined,
@@ -321,34 +322,13 @@ export function ModalGerarCompraItemOrcamento({
                   <TableHead className="text-xs">L Fixo</TableHead>
                   <TableHead className="text-xs">Produto</TableHead>
                   <TableHead className="text-xs w-[110px] text-right">Quantidade</TableHead>
-                  {/* SPEC-155 (P3, item 2): coluna alargada (90px -> 130px)
-                      pra mostrar o valor por inteiro, sem cortar. */}
-                  <TableHead className="text-xs w-[130px] text-right">Líquido (R$)</TableHead>
-                  {/* SPEC-155 (P3, itens 3/4): ICMS/IPI/ST viram somente
-                      leitura, preenchidos automaticamente do cadastro do
-                      produto (getProdutoImpostosBulk) -- deixam de ser
-                      <Input type="number">, então a validação nativa de
-                      incremento decimal do navegador ("os dois valores mais
-                      próximos são...") nunca mais aparece nesses campos. */}
-                  <TableHead className="text-xs w-[100px] text-right">
-                    ICMS (R$)
-                    <span className="block font-normal normal-case text-[10px] text-slate-400">
-                      do cadastro
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-xs w-[100px] text-right">
-                    IPI (R$)
-                    <span className="block font-normal normal-case text-[10px] text-slate-400">
-                      do cadastro
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-xs w-[100px] text-right">
-                    ST (R$)
-                    <span className="block font-normal normal-case text-[10px] text-slate-400">
-                      do cadastro
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-xs w-[120px] text-right">Total (R$)</TableHead>
+                  {/* SPEC-209 B1/B2: sem ICMS; ordem Preço de custo · ST · IPI · Outras
+                      despesas. % vem do cadastro e pode ser ajustado; o R$ aparece embaixo. */}
+                  <TableHead className="text-xs w-[130px] text-right">Preço de custo (R$)</TableHead>
+                  <TableHead className="text-xs w-[100px] text-right">ST</TableHead>
+                  <TableHead className="text-xs w-[100px] text-right">IPI</TableHead>
+                  <TableHead className="text-xs w-[110px] text-right">Outras despesas</TableHead>
+                  <TableHead className="text-xs w-[120px] text-right">Total (R$/un.)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -390,28 +370,29 @@ export function ModalGerarCompraItemOrcamento({
                         }
                       />
                     </TableCell>
-                    <TableCell className="text-right text-sm text-slate-600 tabular-nums">
-                      {(parseFloat(l.valorIcms) || 0).toLocaleString('pt-BR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 4,
-                      })}
+                    <TableCell className="align-top">
+                      <CampoPercentual
+                        value={l.stPerc}
+                        valorReais={l.valorStNum}
+                        onChange={(v) => atualizarLinha(l.projeto_item_id, 'stPerc', v)}
+                      />
                     </TableCell>
-                    <TableCell className="text-right text-sm text-slate-600 tabular-nums">
-                      {(parseFloat(l.valorIpi) || 0).toLocaleString('pt-BR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 4,
-                      })}
+                    <TableCell className="align-top">
+                      <CampoPercentual
+                        value={l.ipiPerc}
+                        valorReais={l.valorIpiNum}
+                        onChange={(v) => atualizarLinha(l.projeto_item_id, 'ipiPerc', v)}
+                      />
                     </TableCell>
-                    <TableCell className="text-right text-sm text-slate-600 tabular-nums">
-                      {(parseFloat(l.valorSt) || 0).toLocaleString('pt-BR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 4,
-                      })}
+                    <TableCell className="align-top">
+                      <CampoPercentual
+                        value={l.outrasPerc}
+                        valorReais={l.valorOutrasNum}
+                        onChange={(v) => atualizarLinha(l.projeto_item_id, 'outrasPerc', v)}
+                      />
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold text-slate-700">
-                      {l.custo > 0
-                        ? l.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                        : '—'}
+                      {l.custo > 0 ? brl(l.custo) : '—'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -419,27 +400,11 @@ export function ModalGerarCompraItemOrcamento({
             </Table>
           </div>
 
-          {totalEstimado > 0 && (
-            <div className="text-right -mt-2 space-y-0.5">
-              <p className="text-sm text-slate-500">
-                Total estimado:{' '}
-                <span className="font-semibold text-slate-700">
-                  {totalEstimado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </span>
-              </p>
-              {descontoNum > 0 && (
-                <p className="text-sm text-emerald-700">
-                  Com desconto de {descontoNum}%:{' '}
-                  <span className="font-semibold">
-                    {totalComDesconto.toLocaleString('pt-BR', {
-                      style: 'currency',
-                      currency: 'BRL',
-                    })}
-                  </span>
-                </p>
-              )}
-            </div>
-          )}
+          <TotaisCompra
+            totalProdutos={totalProdutos}
+            totalComImpostos={totalComImpostos}
+            descontoPedidoPerc={descontoNum}
+          />
 
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">

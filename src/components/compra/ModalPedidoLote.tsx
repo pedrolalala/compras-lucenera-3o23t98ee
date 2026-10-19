@@ -39,6 +39,13 @@ import {
   type Empresa,
 } from '@/services/pedido-compra'
 import type { NecessidadeCompraRow } from '@/services/necessidade-compra'
+import {
+  CampoPercentual,
+  TotaisCompra,
+  brl,
+  calcularCustoItem,
+  percentualParaCampo,
+} from '@/components/compra/custo-compra'
 
 interface Props {
   open: boolean
@@ -54,11 +61,12 @@ interface LinhaLote {
   produto: string
   produto_codigo: string | null
   quantidade: string
-  // SPEC-038 Item 1: custo unitário separado em líquido + ICMS + IPI + ST
+  // SPEC-209 B: preço de custo (já com desconto) + ST/IPI/outras despesas em %
+  // do cadastro; o R$ de cada um é calculado sobre o preço de custo. Sem ICMS.
   custoLiquido: string
-  valorIcms: string
-  valorIpi: string
-  valorSt: string
+  stPerc: string
+  ipiPerc: string
+  outrasPerc: string
   // SPEC-033: contexto de estoque exibido junto ao campo de quantidade —
   // já vem na prop `itens` (NecessidadeCompraRow), sem nova query.
   qtdFisica: number
@@ -67,10 +75,6 @@ interface LinhaLote {
   // SPEC-066 Frente C: "caixa fechada" — informativo, editável só aqui.
   observacaoFornecedor: string | null
   qtdMinima: number | null
-}
-
-function round4(n: number) {
-  return Math.round(n * 10000) / 10000
 }
 
 export function ModalPedidoLote({
@@ -111,9 +115,9 @@ export function ModalPedidoLote({
         produto_codigo: it.produto_codigo,
         quantidade: String(it.necessidade_compra),
         custoLiquido: it.preco_custo != null ? String(it.preco_custo) : '',
-        valorIcms: '',
-        valorIpi: '',
-        valorSt: '',
+        stPerc: '',
+        ipiPerc: '',
+        outrasPerc: '',
         qtdFisica: it.qtd_fisica,
         qtdComprometida: it.qtd_comprometida,
         qtdDisponivel: it.qtd_disponivel,
@@ -139,17 +143,12 @@ export function ModalPedidoLote({
             const dados = impostos.get(l.produto_id)
             if (!dados) return l
             const custoLiquido = dados.custoUnitario ?? (parseFloat(l.custoLiquido) || 0)
-            const icms =
-              custoLiquido > 0 ? round4((custoLiquido * (dados.icmsEntradaPerc ?? 0)) / 100) : 0
-            const ipi =
-              custoLiquido > 0 ? round4((custoLiquido * (dados.ipiEntradaPerc ?? 0)) / 100) : 0
-            const st = custoLiquido > 0 ? round4((custoLiquido * (dados.porcStPerc ?? 0)) / 100) : 0
             return {
               ...l,
               custoLiquido: custoLiquido > 0 ? String(custoLiquido) : l.custoLiquido,
-              valorIcms: String(icms),
-              valorIpi: String(ipi),
-              valorSt: String(st),
+              stPerc: percentualParaCampo(dados.porcStPerc),
+              ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
+              outrasPerc: percentualParaCampo(dados.despesasPerc),
               observacaoFornecedor: dados.observacaoFornecedor,
               qtdMinima: dados.qtdMinima,
             }
@@ -163,7 +162,7 @@ export function ModalPedidoLote({
 
   function atualizarLinha(
     produtoId: string,
-    campo: 'quantidade' | 'custoLiquido' | 'valorIcms' | 'valorIpi' | 'valorSt',
+    campo: 'quantidade' | 'custoLiquido' | 'stPerc' | 'ipiPerc' | 'outrasPerc',
     valor: string,
   ) {
     setLinhas((prev) =>
@@ -206,17 +205,15 @@ export function ModalPedidoLote({
 
   const linhasValidas = linhas.map((l) => {
     const custoLiquido = parseFloat(l.custoLiquido) || 0
-    const valorIcms = parseFloat(l.valorIcms) || 0
-    const valorIpi = parseFloat(l.valorIpi) || 0
-    const valorSt = parseFloat(l.valorSt) || 0
+    const c = calcularCustoItem(custoLiquido, l)
     return {
       ...l,
       qtd: parseFloat(l.quantidade),
       custoLiquidoNum: custoLiquido,
-      valorIcmsNum: valorIcms,
-      valorIpiNum: valorIpi,
-      valorStNum: valorSt,
-      custo: custoLiquido + valorIcms + valorIpi + valorSt,
+      valorIpiNum: c.ipi,
+      valorStNum: c.st,
+      valorOutrasNum: c.outras,
+      custo: c.total,
     }
   })
 
@@ -225,7 +222,12 @@ export function ModalPedidoLote({
 
   const canSubmit = todasLinhasValidas && !!empresaId && !loading
 
-  const totalEstimado = linhasValidas.reduce(
+  // SPEC-209 B5: total dos produtos (preço de custo × qtd) e total com impostos.
+  const totalProdutos = linhasValidas.reduce(
+    (s, l) => (l.qtd > 0 ? s + l.qtd * l.custoLiquidoNum : s),
+    0,
+  )
+  const totalComImpostos = linhasValidas.reduce(
     (s, l) => (l.qtd > 0 && l.custo > 0 ? s + l.qtd * l.custo : s),
     0,
   )
@@ -242,9 +244,9 @@ export function ModalPedidoLote({
           quantidade: l.qtd,
           custo_unitario: l.custo,
           custo_liquido: l.custoLiquidoNum || undefined,
-          valor_icms: l.valorIcmsNum || undefined,
           valor_ipi: l.valorIpiNum || undefined,
           valor_st: l.valorStNum || undefined,
+          valor_outras_despesas: l.valorOutrasNum || undefined,
         })),
         numero: numero.trim() || undefined,
         data_prevista_entrega: dataPrevista || undefined,
@@ -300,11 +302,11 @@ export function ModalPedidoLote({
                 <TableRow>
                   <TableHead className="text-xs">Produto</TableHead>
                   <TableHead className="text-xs w-[110px] text-right">Quantidade</TableHead>
-                  <TableHead className="text-xs w-[100px] text-right">Líquido (R$)</TableHead>
-                  <TableHead className="text-xs w-[90px] text-right">ICMS (R$)</TableHead>
-                  <TableHead className="text-xs w-[90px] text-right">IPI (R$)</TableHead>
-                  <TableHead className="text-xs w-[90px] text-right">ST (R$)</TableHead>
-                  <TableHead className="text-xs w-[100px] text-right">Total (R$)</TableHead>
+                  <TableHead className="text-xs w-[110px] text-right">Preço de custo (R$)</TableHead>
+                  <TableHead className="text-xs w-[90px] text-right">ST</TableHead>
+                  <TableHead className="text-xs w-[90px] text-right">IPI</TableHead>
+                  <TableHead className="text-xs w-[100px] text-right">Outras despesas</TableHead>
+                  <TableHead className="text-xs w-[110px] text-right">Total (R$/un.)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -363,40 +365,29 @@ export function ModalPedidoLote({
                         }
                       />
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="h-9 text-sm text-right"
-                        value={l.valorIcms}
-                        onChange={(e) => atualizarLinha(l.produto_id, 'valorIcms', e.target.value)}
+                    <TableCell className="align-top">
+                      <CampoPercentual
+                        value={l.stPerc}
+                        valorReais={l.valorStNum}
+                        onChange={(v) => atualizarLinha(l.produto_id, 'stPerc', v)}
                       />
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="h-9 text-sm text-right"
-                        value={l.valorIpi}
-                        onChange={(e) => atualizarLinha(l.produto_id, 'valorIpi', e.target.value)}
+                    <TableCell className="align-top">
+                      <CampoPercentual
+                        value={l.ipiPerc}
+                        valorReais={l.valorIpiNum}
+                        onChange={(v) => atualizarLinha(l.produto_id, 'ipiPerc', v)}
                       />
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="h-9 text-sm text-right"
-                        value={l.valorSt}
-                        onChange={(e) => atualizarLinha(l.produto_id, 'valorSt', e.target.value)}
+                    <TableCell className="align-top">
+                      <CampoPercentual
+                        value={l.outrasPerc}
+                        valorReais={l.valorOutrasNum}
+                        onChange={(v) => atualizarLinha(l.produto_id, 'outrasPerc', v)}
                       />
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold text-slate-700">
-                      {l.custo > 0
-                        ? l.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                        : '—'}
+                      {l.custo > 0 ? brl(l.custo) : '—'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -404,14 +395,7 @@ export function ModalPedidoLote({
             </Table>
           </div>
 
-          {totalEstimado > 0 && (
-            <p className="text-sm text-slate-500 text-right -mt-2">
-              Total estimado:{' '}
-              <span className="font-semibold text-slate-700">
-                {totalEstimado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
-            </p>
-          )}
+          <TotaisCompra totalProdutos={totalProdutos} totalComImpostos={totalComImpostos} />
 
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">

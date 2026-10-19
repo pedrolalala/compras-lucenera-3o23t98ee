@@ -33,6 +33,7 @@ export interface CriarPedidoInput {
   valor_icms?: number
   valor_ipi?: number
   valor_st?: number
+  valor_outras_despesas?: number
   // SPEC-057 (reunião 04/08/2026): empresa que está comprando precisa ser
   // escolhida por pedido, não fixa por usuário. perfil é só rótulo
   // Ribeirão/São Paulo (SPEC-064).
@@ -62,6 +63,8 @@ export async function criarPedidoCompra(input: CriarPedidoInput): Promise<CriarP
     p_valor_icms: input.valor_icms ?? null,
     p_valor_ipi: input.valor_ipi ?? null,
     p_valor_st: input.valor_st ?? null,
+    // SPEC-209 B6 (migration 225)
+    p_valor_outras_despesas: input.valor_outras_despesas ?? null,
     p_empresa_id: input.empresa_id,
     p_perfil: input.perfil ?? null,
   })
@@ -89,6 +92,8 @@ export interface ItemPedidoLote {
   valor_icms?: number
   valor_ipi?: number
   valor_st?: number
+  // SPEC-209 B6 (migration 225)
+  valor_outras_despesas?: number
 }
 
 export interface CriarPedidoLoteInput {
@@ -165,15 +170,27 @@ export async function cancelarPedidoCompra(pedidoId: string, motivo?: string): P
 // -----------------------------------------------------------------------
 
 export interface ProdutoImpostos {
+  // SPEC-209 B3: preço de custo JÁ com o desconto do produto (porc_desconto), como no
+  // cadastro (SPEC-190). Custo do fornecedor (produto_fornecedores) vence e não leva desconto.
   custoUnitario: number | null
   icmsEntradaPerc: number | null
   ipiEntradaPerc: number | null
   porcStPerc: number | null
+  // SPEC-209 B4: % de outras despesas do cadastro (produtos.porc_despesas)
+  despesasPerc: number | null
+  descontoPerc: number | null
   // SPEC-066 Frente C: "caixa fechada" — observação e quantidade mínima
   // de produto_fornecedores, exibidas só aqui (Fechar Pedido em Lote),
   // por decisão explícita da Débora (não na grid principal).
   observacaoFornecedor: string | null
   qtdMinima: number | null
+}
+
+// SPEC-209 B3: R$ 100 com 25% de desconto vira R$ 75 (máscara do cadastro).
+function custoComDesconto(preco: number | null | undefined, descontoPerc: number | null | undefined) {
+  if (preco == null) return null
+  const d = Number(descontoPerc) || 0
+  return d > 0 ? Math.round(preco * (1 - d / 100) * 10000) / 10000 : preco
 }
 
 /**
@@ -191,7 +208,7 @@ export async function getProdutoImpostos(
   // SPEC-193 C2: custo/impostos só pela vw_produtos_custo (Administração).
   const { data: produto, error } = await (supabase as any)
     .from('vw_produtos_custo')
-    .select('preco_custo, icms_entrada, ipi_entrada, porc_st')
+    .select('preco_custo, icms_entrada, ipi_entrada, porc_st, porc_despesas, porc_desconto')
     .eq('id', produtoId)
     .maybeSingle()
   if (error) throw error
@@ -213,10 +230,12 @@ export async function getProdutoImpostos(
   }
 
   return {
-    custoUnitario: custoOverride ?? produto?.preco_custo ?? null,
+    custoUnitario: custoOverride ?? custoComDesconto(produto?.preco_custo, produto?.porc_desconto),
     icmsEntradaPerc: produto?.icms_entrada ?? null,
     ipiEntradaPerc: produto?.ipi_entrada ?? null,
     porcStPerc: produto?.porc_st ?? null,
+    despesasPerc: produto?.porc_despesas ?? null,
+    descontoPerc: produto?.porc_desconto ?? null,
     observacaoFornecedor,
     qtdMinima,
   }
@@ -237,7 +256,7 @@ export async function getProdutoImpostosBulk(
   // SPEC-193 C2: custo/impostos só pela vw_produtos_custo (Administração).
   const { data: produtos, error } = await (supabase as any)
     .from('vw_produtos_custo')
-    .select('id, preco_custo, icms_entrada, ipi_entrada, porc_st')
+    .select('id, preco_custo, icms_entrada, ipi_entrada, porc_st, porc_despesas, porc_desconto')
     .in('id', produtoIds)
   if (error) throw error
 
@@ -260,10 +279,12 @@ export async function getProdutoImpostosBulk(
 
   ;(produtos ?? []).forEach((p: any) => {
     result.set(p.id, {
-      custoUnitario: overrides.get(p.id) ?? p.preco_custo ?? null,
+      custoUnitario: overrides.get(p.id) ?? custoComDesconto(p.preco_custo, p.porc_desconto),
       icmsEntradaPerc: p.icms_entrada ?? null,
       ipiEntradaPerc: p.ipi_entrada ?? null,
       porcStPerc: p.porc_st ?? null,
+      despesasPerc: p.porc_despesas ?? null,
+      descontoPerc: p.porc_desconto ?? null,
       observacaoFornecedor: observacoes.get(p.id) ?? null,
       qtdMinima: qtdsMinimas.get(p.id) ?? null,
     })

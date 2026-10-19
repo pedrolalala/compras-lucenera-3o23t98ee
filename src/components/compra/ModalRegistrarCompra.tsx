@@ -36,6 +36,12 @@ import {
   getNecessidadeCompraDetalhe,
   type NecessidadeCompraDetalheRow,
 } from '@/services/necessidade-compra-detalhe'
+import {
+  CampoPercentual,
+  brl,
+  calcularCustoItem,
+  percentualParaCampo,
+} from '@/components/compra/custo-compra'
 
 interface Props {
   open: boolean
@@ -50,9 +56,10 @@ const EMPTY = {
   fornecedorSearch: '',
   quantidade: '',
   custoLiquido: '',
-  valorIcms: '',
-  valorIpi: '',
-  valorSt: '',
+  // SPEC-209 B: % do cadastro (sem ICMS); o R$ é calculado sobre o preço de custo
+  stPerc: '',
+  ipiPerc: '',
+  outrasPerc: '',
   numero: '',
   dataPrevista: '',
   condicoesPagamento: '',
@@ -60,10 +67,6 @@ const EMPTY = {
   gerarParcelas: false,
   empresaId: '',
   perfil: '',
-}
-
-function round4(n: number) {
-  return Math.round(n * 10000) / 10000
 }
 
 export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }: Props) {
@@ -148,16 +151,12 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
     try {
       const dados = await getProdutoImpostos(produtoId, fornecedorId)
       const custoLiquido = dados.custoUnitario ?? 0
-      const icms =
-        custoLiquido > 0 ? round4((custoLiquido * (dados.icmsEntradaPerc ?? 0)) / 100) : 0
-      const ipi = custoLiquido > 0 ? round4((custoLiquido * (dados.ipiEntradaPerc ?? 0)) / 100) : 0
-      const st = custoLiquido > 0 ? round4((custoLiquido * (dados.porcStPerc ?? 0)) / 100) : 0
       setForm((prev) => ({
         ...prev,
         custoLiquido: custoLiquido > 0 ? String(custoLiquido) : prev.custoLiquido,
-        valorIcms: String(icms),
-        valorIpi: String(ipi),
-        valorSt: String(st),
+        stPerc: percentualParaCampo(dados.porcStPerc),
+        ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
+        outrasPerc: percentualParaCampo(dados.despesasPerc),
       }))
     } catch {
       // silencioso — campos continuam editáveis manualmente mesmo sem pré-preenchimento
@@ -191,10 +190,8 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
 
   const qtd = parseFloat(form.quantidade)
   const custoLiquido = parseFloat(form.custoLiquido) || 0
-  const valorIcms = parseFloat(form.valorIcms) || 0
-  const valorIpi = parseFloat(form.valorIpi) || 0
-  const valorSt = parseFloat(form.valorSt) || 0
-  const custoUnitarioTotal = custoLiquido + valorIcms + valorIpi + valorSt
+  const custoItem = calcularCustoItem(custoLiquido, form)
+  const custoUnitarioTotal = custoItem.total
 
   const canSubmit =
     !!form.fornecedorId && !!form.empresaId && qtd > 0 && custoUnitarioTotal > 0 && !loading
@@ -214,9 +211,9 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
         condicoes_pagamento: form.condicoesPagamento.trim() || undefined,
         observacao: form.observacao.trim() || undefined,
         custo_liquido: custoLiquido || undefined,
-        valor_icms: valorIcms || undefined,
-        valor_ipi: valorIpi || undefined,
-        valor_st: valorSt || undefined,
+        valor_ipi: custoItem.ipi || undefined,
+        valor_st: custoItem.st || undefined,
+        valor_outras_despesas: custoItem.outras || undefined,
         empresa_id: form.empresaId,
         perfil: form.perfil || undefined,
       })
@@ -270,10 +267,9 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
 
   if (!produto) return null
 
-  const totalEstimado =
-    qtd > 0 && custoUnitarioTotal > 0
-      ? (qtd * custoUnitarioTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-      : null
+  // SPEC-209 B5
+  const totalProdutos = qtd > 0 ? qtd * custoLiquido : 0
+  const totalComImpostos = qtd > 0 && custoUnitarioTotal > 0 ? qtd * custoUnitarioTotal : 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -378,73 +374,68 @@ export function ModalRegistrarCompra({ open, onOpenChange, produto, onSuccess }:
             />
           </div>
 
-          {/* Custo líquido + impostos (SPEC-038 Item 1) */}
+          {/* SPEC-209 B: Preço de custo · ST · IPI · Outras despesas (sem ICMS) */}
           <div className="space-y-2">
             <Label className="text-sm text-slate-600">
-              Custo e impostos (R$/un.) <span className="text-red-500">*</span>
+              Custo e impostos (por unidade) <span className="text-red-500">*</span>
             </Label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div>
-                <Label className="text-[11px] text-slate-500 font-normal">Custo líquido</Label>
+                <Label className="text-[11px] text-slate-500 font-normal">Preço de custo (R$)</Label>
                 <Input
                   type="number"
                   min="0"
                   step="0.01"
                   placeholder="0,00"
-                  className="h-10 text-sm"
+                  className="h-9 text-sm"
                   value={form.custoLiquido}
                   onChange={(e) => setForm((prev) => ({ ...prev, custoLiquido: e.target.value }))}
                 />
               </div>
               <div>
-                <Label className="text-[11px] text-slate-500 font-normal">ICMS</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0,00"
-                  className="h-10 text-sm"
-                  value={form.valorIcms}
-                  onChange={(e) => setForm((prev) => ({ ...prev, valorIcms: e.target.value }))}
+                <Label className="text-[11px] text-slate-500 font-normal">ST</Label>
+                <CampoPercentual
+                  value={form.stPerc}
+                  valorReais={custoItem.st}
+                  onChange={(v) => setForm((prev) => ({ ...prev, stPerc: v }))}
                 />
               </div>
               <div>
                 <Label className="text-[11px] text-slate-500 font-normal">IPI</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0,00"
-                  className="h-10 text-sm"
-                  value={form.valorIpi}
-                  onChange={(e) => setForm((prev) => ({ ...prev, valorIpi: e.target.value }))}
+                <CampoPercentual
+                  value={form.ipiPerc}
+                  valorReais={custoItem.ipi}
+                  onChange={(v) => setForm((prev) => ({ ...prev, ipiPerc: v }))}
                 />
               </div>
               <div>
-                <Label className="text-[11px] text-slate-500 font-normal">ST</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0,00"
-                  className="h-10 text-sm"
-                  value={form.valorSt}
-                  onChange={(e) => setForm((prev) => ({ ...prev, valorSt: e.target.value }))}
+                <Label className="text-[11px] text-slate-500 font-normal">Outras despesas</Label>
+                <CampoPercentual
+                  value={form.outrasPerc}
+                  valorReais={custoItem.outras}
+                  onChange={(v) => setForm((prev) => ({ ...prev, outrasPerc: v }))}
                 />
               </div>
             </div>
             <p className="text-xs text-slate-500 text-right">
-              Custo unitário total:{' '}
-              <span className="font-semibold text-slate-700">
-                {custoUnitarioTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
+              Custo unitário com impostos:{' '}
+              <span className="font-semibold text-slate-700">{brl(custoUnitarioTotal)}</span>
             </p>
           </div>
 
-          {totalEstimado && (
-            <p className="text-sm text-slate-500 text-right -mt-2">
-              Total estimado: <span className="font-semibold text-slate-700">{totalEstimado}</span>
-            </p>
+          {totalComImpostos > 0 && (
+            <div className="ml-auto w-full sm:w-[420px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm space-y-1">
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-600">Valor total dos produtos</span>
+                <span className="font-semibold text-slate-800 tabular-nums">{brl(totalProdutos)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-600">Valor total dos produtos com impostos</span>
+                <span className="font-semibold text-slate-900 tabular-nums">
+                  {brl(totalComImpostos)}
+                </span>
+              </div>
+            </div>
           )}
 
           {/* Empresa — reunião 04/08/2026: precisa ser escolhida por pedido */}
