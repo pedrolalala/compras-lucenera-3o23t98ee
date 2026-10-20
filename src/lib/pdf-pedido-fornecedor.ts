@@ -42,7 +42,7 @@ async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
     (supabase as any)
       .from('pedido_compra_itens')
       .select(
-        'id, quantidade, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, criado_em, produtos(nome, codigo_produto, referencia, unidade)',
+        'id, produto_id, quantidade, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, criado_em, produtos(nome, codigo_produto, referencia, unidade)',
       )
       .eq('pedido_id', pedidoId)
       .order('criado_em', { ascending: true })

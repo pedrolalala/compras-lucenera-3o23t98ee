@@ -495,13 +495,15 @@ export interface ItemDoPedido {
   valor_ipi: number | null
   valor_st: number | null
   valor_outras_despesas: number | null
+  /** SPEC-213: L de origem desta linha (vazio = produto inteiro, sem L). */
+  ls: string[]
 }
 
 export async function getItensDoPedido(pedidoId: string): Promise<ItemDoPedido[]> {
   const { data, error } = await (supabase as any)
     .from('pedido_compra_itens')
     .select(
-      'id, produto_id, quantidade, qtd_recebida, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, produtos(nome, codigo_produto)',
+      'id, produto_id, quantidade, qtd_recebida, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, produtos(nome, codigo_produto), pedido_compra_item_origem(projeto_itens(l_fixo))',
     )
     .eq('pedido_id', pedidoId)
     .order('criado_em', { ascending: true })
@@ -518,6 +520,9 @@ export async function getItensDoPedido(pedidoId: string): Promise<ItemDoPedido[]
     valor_ipi: i.valor_ipi != null ? Number(i.valor_ipi) : null,
     valor_st: i.valor_st != null ? Number(i.valor_st) : null,
     valor_outras_despesas: i.valor_outras_despesas != null ? Number(i.valor_outras_despesas) : null,
+    ls: ((i.pedido_compra_item_origem ?? []) as any[])
+      .map((o) => o.projeto_itens?.l_fixo)
+      .filter(Boolean) as string[],
   }))
 }
 

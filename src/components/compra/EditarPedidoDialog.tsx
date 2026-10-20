@@ -34,6 +34,7 @@ import {
   getEmpresas,
   getItensDoPedido,
   type Empresa,
+  type EditarPedidoItem,
   type PedidoCompraRow,
 } from '@/services/pedido-compra'
 import {
@@ -48,8 +49,19 @@ import { useArrastavel } from '@/components/compra/use-arrastavel'
 // SPEC-209 D3: o fornecedor respondeu (mudou quantidade, deu desconto, faltou item...) e a Débora
 // ajusta o pedido antes de aprovar. Só vale para "Aguardando aprovar" (o banco também barra).
 
+// SPEC-213: a mesma peça (vários L) aparece numa linha só, com a quantidade somada. Por baixo, cada
+// L continua sendo um item do pedido (o vínculo com a venda é por item), então ao salvar a quantidade
+// total é redistribuída: o que aumentar vai para a primeira linha; o que diminuir sai das últimas
+// (linha que zera é tirada e a necessidade daquele L volta a aparecer).
+interface ParteLinha {
+  id: string
+  quantidade: number
+  ls: string[]
+}
+
 interface LinhaEdicao {
   id: string
+  partes: ParteLinha[]
   produto: string
   codigo: string | null
   quantidade: string
@@ -58,6 +70,22 @@ interface LinhaEdicao {
   ipiPerc: string
   outrasPerc: string
   remover: boolean
+}
+
+function distribuir(partes: ParteLinha[], total: number): { id: string; quantidade: number }[] {
+  const soma = partes.reduce((s, p) => s + p.quantidade, 0)
+  const qtds = partes.map((p) => p.quantidade)
+  if (total >= soma) {
+    qtds[0] += total - soma
+  } else {
+    let falta = soma - total
+    for (let i = qtds.length - 1; i >= 0 && falta > 0; i--) {
+      const tira = Math.min(qtds[i], falta)
+      qtds[i] -= tira
+      falta -= tira
+    }
+  }
+  return partes.map((p, i) => ({ id: p.id, quantidade: Math.round(qtds[i] * 1000) / 1000 }))
 }
 
 function percentualDoValor(valor: number | null, base: number): string {
@@ -101,15 +129,20 @@ export function EditarPedidoDialog({
       .catch(() => setEmpresas([]))
     setCarregando(true)
     getItensDoPedido(pedido.id)
-      .then((itens) =>
+      .then((itens) => {
+        // SPEC-213: agrupa por peça, na ordem em que aparece no pedido
+        const grupos = new Map<string, typeof itens>()
+        for (const i of itens) grupos.set(i.produto_id, [...(grupos.get(i.produto_id) ?? []), i])
         setLinhas(
-          itens.map((i) => {
+          Array.from(grupos.values()).map((grupo) => {
+            const i = grupo[0]
             const base = i.custo_liquido ?? i.custo_unitario
             return {
-              id: i.id,
+              id: i.produto_id,
+              partes: grupo.map((g) => ({ id: g.id, quantidade: g.quantidade, ls: g.ls })),
               produto: i.produto_nome,
               codigo: i.produto_codigo,
-              quantidade: String(i.quantidade),
+              quantidade: String(grupo.reduce((s, g) => s + g.quantidade, 0)),
               custoLiquido: String(base),
               stPerc: percentualDoValor(i.valor_st, base),
               ipiPerc: percentualDoValor(i.valor_ipi, base),
@@ -117,8 +150,8 @@ export function EditarPedidoDialog({
               remover: false,
             }
           }),
-        ),
-      )
+        )
+      })
       .catch((err) =>
         toast({
           title: 'Erro ao carregar itens do pedido',
@@ -149,18 +182,22 @@ export function EditarPedidoDialog({
     try {
       const r = await editarPedidoCompra({
         pedido_id: pedido.id,
-        itens: calculadas.map((l) =>
+        itens: calculadas.flatMap((l): EditarPedidoItem[] =>
           l.remover
-            ? { pedido_item_id: l.id, remover: true }
-            : {
-                pedido_item_id: l.id,
-                quantidade: l.qtd,
-                custo_unitario: l.c.total,
-                custo_liquido: l.custo || null,
-                valor_ipi: l.c.ipi || null,
-                valor_st: l.c.st || null,
-                valor_outras_despesas: l.c.outras || null,
-              },
+            ? l.partes.map((p) => ({ pedido_item_id: p.id, remover: true }))
+            : distribuir(l.partes, l.qtd).map((p) =>
+                p.quantidade <= 0
+                  ? { pedido_item_id: p.id, remover: true }
+                  : {
+                      pedido_item_id: p.id,
+                      quantidade: p.quantidade,
+                      custo_unitario: l.c.total,
+                      custo_liquido: l.custo || null,
+                      valor_ipi: l.c.ipi || null,
+                      valor_st: l.c.st || null,
+                      valor_outras_despesas: l.c.outras || null,
+                    },
+              ),
         ),
         data_prevista_entrega: dataPrevista || null,
         condicoes_pagamento: condicoes,
@@ -199,8 +236,10 @@ export function EditarPedidoDialog({
             Editar pedido #{pedido?.numero} — {pedido?.fornecedor_nome}
           </DialogTitle>
           <p className="text-xs text-slate-500">
-            Ajuste o que o fornecedor respondeu antes de aprovar. Marque "Tirar" para retirar um item
-            (a necessidade dele volta a aparecer). Arraste pelo título para ver a tela de trás.
+            Ajuste o que o fornecedor respondeu antes de aprovar. A mesma peça de vários L aparece numa
+            linha só, com a quantidade somada: se diminuir, a diferença sai dos últimos L da lista (a
+            necessidade deles volta a aparecer). Marque "Tirar" para retirar a peça. Arraste pelo título
+            para ver a tela de trás.
           </p>
         </DialogHeader>
 
@@ -232,6 +271,14 @@ export function EditarPedidoDialog({
                         <p className="font-medium text-slate-800 line-clamp-1">{l.produto}</p>
                         {l.codigo && (
                           <span className="font-mono text-xs text-slate-400">{l.codigo}</span>
+                        )}
+                        {/* SPEC-213: de quais L vem a quantidade somada */}
+                        {l.partes.some((p) => p.ls.length > 0) && (
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {l.partes
+                              .map((p) => `${p.ls.join('/') || 'sem L'}: ${p.quantidade.toLocaleString('pt-BR')}`)
+                              .join(' · ')}
+                          </p>
                         )}
                       </TableCell>
                       <TableCell className="align-top">

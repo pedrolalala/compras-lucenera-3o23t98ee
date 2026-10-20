@@ -197,25 +197,32 @@ export async function gerarPdfPedidoFornecedor(
   let totalSt = 0
   let totalOutras = 0
   let totalBruto = 0
+  // SPEC-213: a mesma peça (vários L) sai numa linha só, com a quantidade e o subtotal somados.
+  const porPeca = new Map<string, { p: any; q: number; sub: number }>()
   for (const i of itens) {
-    if (y < 60) {
-      y = novaPagina()
-      cabecalho()
-    }
     const q = Number(i.quantidade) || 0
     const unit = Number(i.custo_unitario) || 0
     // preço de custo sem impostos; pedidos antigos sem custo_liquido usam o custo unitário
     const liq = i.custo_liquido != null ? Number(i.custo_liquido) : unit
-    const ipi = Number(i.valor_ipi) || 0
-    const st = Number(i.valor_st) || 0
-    const outras = Number(i.valor_outras_despesas) || 0
     totalProdutos += q * liq
-    totalIpi += q * ipi
-    totalSt += q * st
-    totalOutras += q * outras
+    totalIpi += q * (Number(i.valor_ipi) || 0)
+    totalSt += q * (Number(i.valor_st) || 0)
+    totalOutras += q * (Number(i.valor_outras_despesas) || 0)
     totalBruto += q * unit
 
     const p = i.produtos || {}
+    const chave = String(i.produto_id ?? `${p.codigo_produto}|${p.referencia}|${p.nome}`)
+    const g = porPeca.get(chave) ?? { p, q: 0, sub: 0 }
+    g.q += q
+    g.sub += q * liq
+    porPeca.set(chave, g)
+  }
+
+  for (const { p, q, sub } of porPeca.values()) {
+    if (y < 60) {
+      y = novaPagina()
+      cabecalho()
+    }
     page.drawText(caber(p.codigo_produto ?? '-', bold, 8, col.ref - col.cod - 4), { x: col.cod, y, size: 8, font: bold })
     page.drawText(caber(p.referencia || '-', font, 8, col.desc - col.ref - 4), { x: col.ref, y, size: 8, font })
     page.drawText(caber(p.nome || '-', font, 8, col.un - col.desc - 6), { x: col.desc, y, size: 8, font })
@@ -223,8 +230,8 @@ export async function gerarPdfPedidoFornecedor(
     const dir = (t: string, x: number) =>
       page.drawText(t, { x: x - font.widthOfTextAtSize(t, 8), y, size: 8, font })
     dir(qtdFmt(q), col.qtd)
-    dir(brl(liq), col.unit)
-    dir(brl(q * liq), col.sub)
+    dir(brl(q > 0 ? sub / q : 0), col.unit)
+    dir(brl(sub), col.sub)
     y -= 15
   }
   y -= 5
