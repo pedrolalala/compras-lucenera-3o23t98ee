@@ -221,6 +221,7 @@ export function EditarPedidoDialog({
                     <TableHead className="text-xs w-[90px] text-right">IPI</TableHead>
                     <TableHead className="text-xs w-[100px] text-right">Outras despesas</TableHead>
                     <TableHead className="text-xs w-[110px] text-right">Total (R$/un.)</TableHead>
+                    <TableHead className="text-xs w-[120px] text-right">Total do item (R$)</TableHead>
                     <TableHead className="text-xs w-[60px] text-center">Tirar</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -276,6 +277,10 @@ export function EditarPedidoDialog({
                       </TableCell>
                       <TableCell className="text-right text-sm font-semibold text-slate-700">
                         {l.c.total > 0 ? brl(l.c.total) : '—'}
+                      </TableCell>
+                      {/* quantidade × total por unidade (com impostos) */}
+                      <TableCell className="text-right text-sm font-bold text-slate-900 whitespace-nowrap">
+                        {l.qtd > 0 && l.c.total > 0 ? brl(l.qtd * l.c.total) : '—'}
                       </TableCell>
                       <TableCell className="text-center">
                         <Checkbox

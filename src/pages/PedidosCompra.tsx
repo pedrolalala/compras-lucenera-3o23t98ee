@@ -32,6 +32,7 @@ import {
   CheckCircle2,
   Pencil,
   CalendarClock,
+  FileDown,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -39,6 +40,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { PedidoParcelasPanel } from '@/components/compra/PedidoParcelasPanel'
 import { PedidoItensResumo } from '@/components/compra/PedidoItensResumo'
 import { EditarPedidoDialog } from '@/components/compra/EditarPedidoDialog'
+import { baixarPdfPedidoFornecedor } from '@/lib/pdf-pedido-fornecedor'
 import {
   getPedidosCompra,
   cancelarPedidoCompra,
@@ -91,6 +93,23 @@ export default function PedidosCompra() {
   const [cancelando, setCancelando] = useState(false)
   const [aprovandoId, setAprovandoId] = useState<string | null>(null)
   const [pedidoParaEditar, setPedidoParaEditar] = useState<PedidoCompraRow | null>(null)
+  const [pdfId, setPdfId] = useState<string | null>(null)
+
+  // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
+  async function baixarPdf(r: PedidoCompraRow) {
+    setPdfId(r.id)
+    try {
+      await baixarPdfPedidoFornecedor(r.id)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao gerar o PDF do pedido',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setPdfId(null)
+    }
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -411,6 +430,21 @@ export default function PedidosCompra() {
                         <div className="flex justify-end gap-1 flex-wrap">
                           {aguardando && (
                             <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={pdfId === r.id}
+                                title="Baixar o PDF do pedido para enviar ao fornecedor"
+                                onClick={() => baixarPdf(r)}
+                              >
+                                {pdfId === r.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                                ) : (
+                                  <FileDown className="w-3.5 h-3.5 mr-1" />
+                                )}
+                                PDF
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
