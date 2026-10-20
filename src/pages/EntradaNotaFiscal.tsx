@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table'
 import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw } from 'lucide-react'
 import { StatusBadge } from '@/components/StatusBadge'
+import { cn } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import {
   buscarPedidoPorNumero,
@@ -50,6 +51,25 @@ function fmtDate(v: string | null) {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR')
 }
 
+const fmtQtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+
+type ItemEntrada = PedidoParaEntrada['itens'][number]
+
+// SPEC-213: a mesma peça de vários L vira uma linha só (soma do pedido, do que já chegou e do que falta).
+function agruparPorPeca(itens: ItemEntrada[]) {
+  const grupos = new Map<string, ItemEntrada[]>()
+  for (const it of itens) grupos.set(it.produto_id, [...(grupos.get(it.produto_id) ?? []), it])
+  return Array.from(grupos.entries()).map(([produto_id, lista]) => ({
+    produto_id,
+    produto_nome: lista[0].produto_nome,
+    produto_codigo: lista[0].produto_codigo,
+    itens: lista,
+    quantidade: lista.reduce((s, i) => s + i.quantidade, 0),
+    qtd_recebida: lista.reduce((s, i) => s + i.qtd_recebida, 0),
+    falta: lista.reduce((s, i) => s + Math.max(0, i.quantidade - i.qtd_recebida), 0),
+  }))
+}
+
 export default function EntradaNotaFiscal() {
   const { toast } = useToast()
 
@@ -62,7 +82,8 @@ export default function EntradaNotaFiscal() {
   const [buscando, setBuscando] = useState(false)
   const [pedido, setPedido] = useState<PedidoParaEntrada | null>(null)
   const [naoEncontrado, setNaoEncontrado] = useState(false)
-  // SPEC-209 E: quanto chegou agora de cada item (começa com o que falta chegar)
+  // SPEC-209 E: quanto chegou agora de cada peça (começa com o que falta chegar).
+  // SPEC-213: chave = produto_id — a mesma peça de vários L é uma linha só.
   const [chegou, setChegou] = useState<Record<string, string>>({})
 
   const [fornecedorBusca, setFornecedorBusca] = useState('')
@@ -162,7 +183,7 @@ export default function EntradaNotaFiscal() {
         setPedido(result)
         setChegou(
           Object.fromEntries(
-            result.itens.map((it) => [it.id, String(Math.max(0, it.quantidade - it.qtd_recebida))]),
+            agruparPorPeca(result.itens).map((g) => [g.produto_id, String(g.falta)]),
           ),
         )
         setValor(result.valor_total != null ? String(result.valor_total) : '')
@@ -203,11 +224,26 @@ export default function EntradaNotaFiscal() {
 
   // SPEC-209 E: pedido cancelado ou já concluído não recebe entrada.
   const pedidoFechado = !!pedido && ['cancelado', 'recebido'].includes(pedido.status)
-  const itensChegando = (pedido?.itens ?? [])
-    .map((it) => ({ pedido_item_id: it.id, quantidade: parseFloat((chegou[it.id] ?? '').replace(',', '.')) || 0 }))
+  // SPEC-213: o que chegou de cada peça é repartido entre as linhas (L) dela, na ordem do pedido:
+  // completa o que falta no primeiro L, depois no seguinte.
+  const pecas = agruparPorPeca(pedido?.itens ?? [])
+  const lerChegou = (produtoId: string) =>
+    parseFloat((chegou[produtoId] ?? '').replace(',', '.')) || 0
+  const pecasAMais = pecas.filter((g) => lerChegou(g.produto_id) > g.falta)
+  const itensChegando = pecas
+    .flatMap((g) => {
+      let resta = lerChegou(g.produto_id)
+      return g.itens.map((it) => {
+        const q = Math.min(resta, Math.max(0, it.quantidade - it.qtd_recebida))
+        resta -= q
+        return { pedido_item_id: it.id, quantidade: Math.round(q * 1000) / 1000 }
+      })
+    })
     .filter((it) => it.quantidade > 0)
   const podeRegistrar =
-    modo === 'pedido' ? !!pedido && !pedidoFechado && itensChegando.length > 0 : !!fornecedorSelecionado
+    modo === 'pedido'
+      ? !!pedido && !pedidoFechado && itensChegando.length > 0 && pecasAMais.length === 0
+      : !!fornecedorSelecionado
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -359,32 +395,45 @@ export default function EntradaNotaFiscal() {
                           </tr>
                         </thead>
                         <tbody>
-                          {pedido.itens.map((it) => {
-                            const falta = Math.max(0, it.quantidade - it.qtd_recebida)
+                          {pecas.map((g) => {
+                            const aMais = lerChegou(g.produto_id) > g.falta
                             return (
-                              <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                              <tr key={g.produto_id} className="border-b border-slate-100 last:border-0">
                                 <td className="p-2 text-slate-700">
-                                  {it.produto_codigo && (
+                                  {g.produto_codigo && (
                                     <span className="font-mono text-slate-400 mr-1.5">
-                                      {it.produto_codigo}
+                                      {g.produto_codigo}
                                     </span>
                                   )}
-                                  {it.produto_nome}
+                                  {g.produto_nome}
+                                  {g.itens.length > 1 && (
+                                    <span className="block text-[11px] text-slate-400">
+                                      soma de {g.itens.length} linhas (L) do pedido
+                                    </span>
+                                  )}
                                 </td>
-                                <td className="p-2 text-right tabular-nums">{it.quantidade}</td>
-                                <td className="p-2 text-right tabular-nums">{it.qtd_recebida}</td>
-                                <td className="p-2 text-right tabular-nums font-semibold">{falta}</td>
+                                <td className="p-2 text-right tabular-nums">{fmtQtd(g.quantidade)}</td>
+                                <td className="p-2 text-right tabular-nums">{fmtQtd(g.qtd_recebida)}</td>
+                                <td className="p-2 text-right tabular-nums font-semibold">{fmtQtd(g.falta)}</td>
                                 <td className="p-2 text-right">
                                   <Input
                                     type="text"
                                     inputMode="decimal"
-                                    className="h-8 w-24 ml-auto text-right text-sm"
-                                    value={chegou[it.id] ?? ''}
-                                    disabled={pedidoFechado || falta <= 0}
+                                    className={cn(
+                                      'h-8 w-24 ml-auto text-right text-sm',
+                                      aMais && 'border-red-500 text-red-600',
+                                    )}
+                                    value={chegou[g.produto_id] ?? ''}
+                                    disabled={pedidoFechado || g.falta <= 0}
                                     onChange={(e) =>
-                                      setChegou((prev) => ({ ...prev, [it.id]: e.target.value }))
+                                      setChegou((prev) => ({ ...prev, [g.produto_id]: e.target.value }))
                                     }
                                   />
+                                  {aMais && (
+                                    <span className="block text-[11px] text-red-600 mt-0.5">
+                                      Maior que o que falta ({fmtQtd(g.falta)})
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             )

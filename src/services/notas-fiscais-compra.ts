@@ -22,6 +22,7 @@ export interface PedidoParaEntrada {
   // SPEC-209 E: id e qtd_recebida para a entrada por item
   itens: Array<{
     id: string
+    produto_id: string
     produto_nome: string
     produto_codigo: string | null
     quantidade: number
@@ -43,7 +44,7 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
 
   const { data: itens } = await (supabase as any)
     .from('pedido_compra_itens')
-    .select('id, quantidade, qtd_recebida, produtos(nome, codigo_produto)')
+    .select('id, produto_id, quantidade, qtd_recebida, produtos(nome, codigo_produto)')
     .eq('pedido_id', pedido.id)
     .order('criado_em', { ascending: true })
 
@@ -57,6 +58,7 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
     condicoes_pagamento: pedido.condicoes_pagamento,
     itens: ((itens ?? []) as any[]).map((i) => ({
       id: i.id,
+      produto_id: i.produto_id,
       produto_nome: i.produtos?.nome ?? '—',
       produto_codigo: i.produtos?.codigo_produto ? String(i.produtos.codigo_produto) : null,
       quantidade: Number(i.quantidade) || 0,
