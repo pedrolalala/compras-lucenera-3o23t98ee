@@ -34,6 +34,7 @@ import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDet
 import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
 import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
+import { getEmpresas, type Empresa } from '@/services/pedido-compra'
 import {
   getNecessidadeCompra,
   type NecessidadeCompraRow,
@@ -83,6 +84,14 @@ export default function NecessidadeCompra() {
   // SPEC-209 A3: L com saldo a comprar (com a empresa da venda) e filtro de empresa
   const [itensOrc, setItensOrc] = useState<NecessidadeCompraItemRow[]>([])
   const [selectedEmpresa, setSelectedEmpresa] = useState<string>('all')
+  // Todas as empresas do grupo no filtro, mesmo as que hoje não têm L a comprar.
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
+
+  useEffect(() => {
+    getEmpresas()
+      .then(setEmpresas)
+      .catch(() => setEmpresas([]))
+  }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 400)
@@ -147,16 +156,18 @@ export default function NecessidadeCompra() {
       .sort((a, b) => a.nome.localeCompare(b.nome))
   }, [rows])
 
-  // SPEC-209 A3: empresas das vendas com L a comprar e, por produto, de quais empresas são os L.
+  // SPEC-209 A3: todas as empresas do grupo (Foco, ISLIGHT, Manoella) + as das vendas com L a
+  // comprar; por produto, de quais empresas são os L.
   const empresasDisponiveis = useMemo(() => {
     const map = new Map<string, string>()
+    empresas.forEach((e) => map.set(e.id, e.nome))
     itensOrc.forEach((i) => {
       if (i.empresa_id) map.set(i.empresa_id, i.empresa_nome ?? '—')
     })
     return Array.from(map.entries())
       .map(([id, nome]) => ({ id, nome }))
       .sort((a, b) => a.nome.localeCompare(b.nome))
-  }, [itensOrc])
+  }, [empresas, itensOrc])
 
   const itensPorProduto = useMemo(() => {
     const map = new Map<string, NecessidadeCompraItemRow[]>()
