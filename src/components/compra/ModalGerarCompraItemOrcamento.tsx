@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -90,6 +91,8 @@ interface LinhaItem {
   outrasPerc: string
   observacaoFornecedor: string | null
   qtdMinima: number | null
+  // SPEC-212: "Tirar" — peça selecionada a mais não entra no pedido (igual ao Editar pedido)
+  remover: boolean
 }
 
 export function ModalGerarCompraItemOrcamento({
@@ -142,6 +145,7 @@ export function ModalGerarCompraItemOrcamento({
         outrasPerc: '',
         observacaoFornecedor: null,
         qtdMinima: null,
+        remover: false,
       })),
     )
     setNumero('')
@@ -186,6 +190,10 @@ export function ModalGerarCompraItemOrcamento({
         // silencioso — pré-preenchimento de custo é conveniência, não obrigatório.
       })
   }, [open, itens, fornecedorId, empresaDasVendas])
+
+  function alternarRemover(chave: string, remover: boolean) {
+    setLinhas((prev) => prev.map((l) => (l.chave === chave ? { ...l, remover } : l)))
+  }
 
   function atualizarLinha(
     chave: string,
@@ -233,18 +241,20 @@ export function ModalGerarCompraItemOrcamento({
     }
   })
 
-  const todasLinhasValidas =
-    linhasValidas.length > 0 && linhasValidas.every((l) => l.qtd > 0 && l.custo > 0)
+  // SPEC-212: só as linhas que não foram tiradas entram no pedido, nos totais e na validação.
+  const ativas = linhasValidas.filter((l) => !l.remover)
+
+  const todasLinhasValidas = ativas.length > 0 && ativas.every((l) => l.qtd > 0 && l.custo > 0)
 
   // SPEC-155 (P3): Empresa emitente obrigatória.
   const canSubmit = todasLinhasValidas && !!empresaId && !loading
 
   // SPEC-209 B5: total dos produtos (preço de custo × qtd) e total com impostos.
-  const totalProdutos = linhasValidas.reduce(
+  const totalProdutos = ativas.reduce(
     (s, l) => (l.qtd > 0 ? s + l.qtd * l.custoLiquidoNum : s),
     0,
   )
-  const totalComImpostos = linhasValidas.reduce(
+  const totalComImpostos = ativas.reduce(
     (s, l) => (l.qtd > 0 && l.custo > 0 ? s + l.qtd * l.custo : s),
     0,
   )
@@ -252,7 +262,7 @@ export function ModalGerarCompraItemOrcamento({
   // SPEC-155 (P3, achado do revisor): clampa em [0, 100] tanto pra prévia quanto pro valor enviado.
   const descontoNum = Math.min(100, Math.max(0, parseFloat(descontoPercentual) || 0))
 
-  const empresasDasLinhas = Array.from(new Set(itens.map((i) => i.empresa_nome).filter(Boolean)))
+  const empresasDasLinhas = Array.from(new Set(ativas.map((i) => i.empresa_nome).filter(Boolean)))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -261,7 +271,7 @@ export function ModalGerarCompraItemOrcamento({
     try {
       const result = await criarPedidoCompraLote({
         fornecedor_id: fornecedorId,
-        itens: linhasValidas.map((l) => ({
+        itens: ativas.map((l) => ({
           produto_id: l.produto_id,
           quantidade: l.qtd,
           custo_unitario: l.custo,
@@ -282,8 +292,8 @@ export function ModalGerarCompraItemOrcamento({
 
       // Vínculo de origem OBRIGATÓRIO (P-03) para linha de L — mapeado por índice.
       const falhas: string[] = []
-      for (let i = 0; i < linhasValidas.length; i++) {
-        const linha = linhasValidas[i]
+      for (let i = 0; i < ativas.length; i++) {
+        const linha = ativas[i]
         if (!linha.projeto_item_id) continue
         const itemCriado = result.itens[i]
         if (!itemCriado) {
@@ -376,11 +386,13 @@ export function ModalGerarCompraItemOrcamento({
                   <TableHead className="text-xs w-[100px] text-right">IPI</TableHead>
                   <TableHead className="text-xs w-[110px] text-right">Outras despesas</TableHead>
                   <TableHead className="text-xs w-[120px] text-right">Total (R$/un.)</TableHead>
+                  <TableHead className="text-xs w-[120px] text-right">Total do item (R$)</TableHead>
+                  <TableHead className="text-xs w-[60px] text-center">Tirar</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {linhasValidas.map((l) => (
-                  <TableRow key={l.chave}>
+                  <TableRow key={l.chave} className={cn(l.remover && 'opacity-50 line-through')}>
                     <TableCell className="text-xs text-slate-600 whitespace-nowrap">
                       {semPrefixo(l.orcamento_numero) || '—'}
                       {l.empresa_nome && (
@@ -411,6 +423,7 @@ export function ModalGerarCompraItemOrcamento({
                         step="0.001"
                         className={cn('h-9 text-sm text-right', NO_SPINNER)}
                         value={l.quantidade}
+                        disabled={l.remover}
                         onChange={(e) => atualizarLinha(l.chave, 'quantidade', e.target.value)}
                       />
                     </TableCell>
@@ -421,6 +434,7 @@ export function ModalGerarCompraItemOrcamento({
                         step="0.01"
                         className={cn('h-9 text-sm text-right', NO_SPINNER)}
                         value={l.custoLiquido}
+                        disabled={l.remover}
                         onChange={(e) => atualizarLinha(l.chave, 'custoLiquido', e.target.value)}
                       />
                     </TableCell>
@@ -447,6 +461,16 @@ export function ModalGerarCompraItemOrcamento({
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold text-slate-700">
                       {l.custo > 0 ? brl(l.custo) : '—'}
+                    </TableCell>
+                    <TableCell className="text-right text-sm font-bold text-slate-900 whitespace-nowrap">
+                      {l.qtd > 0 && l.custo > 0 ? brl(l.qtd * l.custo) : '—'}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Checkbox
+                        checked={l.remover}
+                        onCheckedChange={(v) => alternarRemover(l.chave, v === true)}
+                        aria-label="Tirar do pedido"
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -590,7 +614,7 @@ export function ModalGerarCompraItemOrcamento({
               ) : (
                 <>
                   <PackageCheck className="w-4 h-4 mr-2" />
-                  Confirmar pedido
+                  Confirmar pedido ({ativas.length} {ativas.length === 1 ? 'item' : 'itens'})
                 </>
               )}
             </Button>
