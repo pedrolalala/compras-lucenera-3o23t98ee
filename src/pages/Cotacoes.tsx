@@ -389,11 +389,10 @@ export default function Cotacoes() {
                                   prev ? { ...prev, valor: e.target.value } : null,
                                 )
                               }
+                              // SPEC-216: salva só no clique do ✓ (Enter pula campo; sair do campo não salva)
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') salvarPreco(r.produto_id)
                                 if (e.key === 'Escape') cancelarEdicao()
                               }}
-                              onBlur={() => salvarPreco(r.produto_id)}
                               className="h-7 w-24 text-xs text-right px-2"
                               disabled={editando!.saving}
                             />
@@ -446,11 +445,10 @@ export default function Cotacoes() {
                                   prev ? { ...prev, valor: e.target.value } : null,
                                 )
                               }
+                              // SPEC-216: salva só no clique do ✓ (Enter pula campo; sair do campo não salva)
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') salvarDesconto(r.produto_id)
                                 if (e.key === 'Escape') cancelarEdicaoDesconto()
                               }}
-                              onBlur={() => salvarDesconto(r.produto_id)}
                               className="h-7 w-20 text-xs text-right px-2"
                               disabled={editandoDesconto!.saving}
                             />
