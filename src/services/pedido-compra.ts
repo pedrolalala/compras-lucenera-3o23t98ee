@@ -626,3 +626,43 @@ export async function getPedidosChegando(dias = 10): Promise<PedidoChegando[]> {
     fornecedor_nome: p.contatos?.nome ?? '—',
   }))
 }
+
+// SPEC-214: e-mails do fornecedor para o botão "Enviar ao fornecedor". O que for digitado na janela
+// fica gravado no cadastro do fornecedor (contatos.email / email_alternativo) para os próximos pedidos.
+export interface EmailsFornecedor {
+  email: string
+  email_alternativo: string
+}
+
+export async function getEmailsFornecedor(fornecedorId: string): Promise<EmailsFornecedor> {
+  const { data, error } = await (supabase as any)
+    .from('contatos')
+    .select('email, email_alternativo')
+    .eq('id', fornecedorId)
+    .maybeSingle()
+  if (error) throw error
+  return { email: data?.email ?? '', email_alternativo: data?.email_alternativo ?? '' }
+}
+
+export async function salvarEmailsFornecedor(
+  fornecedorId: string,
+  emails: EmailsFornecedor,
+): Promise<void> {
+  const { data, error } = await (supabase as any)
+    .from('contatos')
+    .update({ email: emails.email || null, email_alternativo: emails.email_alternativo || null })
+    .eq('id', fornecedorId)
+    .select('id')
+  if (error) throw error
+  // Sem permissão o RLS não dá erro, só não atualiza nenhuma linha.
+  if (!data?.length) throw new Error('Sem permissão para alterar o cadastro do fornecedor.')
+}
+
+export async function getNomeUsuario(usuarioId: string): Promise<string | null> {
+  const { data } = await (supabase as any)
+    .from('usuarios')
+    .select('nome')
+    .eq('id', usuarioId)
+    .maybeSingle()
+  return data?.nome ?? null
+}

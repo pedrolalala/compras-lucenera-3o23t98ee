@@ -83,17 +83,40 @@ function logoRecortada(): Promise<string | null> {
   })
 }
 
-export async function baixarPdfPedidoFornecedor(pedidoId: string) {
+// SPEC-214: nome padrão do PDF (o mesmo no botão PDF e no anexo do e-mail).
+// Ex.: Pedido_Compra_1783_Stella.pdf — sem acento nem espaço, que alguns e-mails estragam.
+export function nomeArquivoPedido(numero: string | number, fornecedorNome: string | null | undefined) {
+  const limpar = (t: string) =>
+    t
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^\w-]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+  const forn = limpar(fornecedorNome ?? '').slice(0, 40).replace(/_$/, '')
+  return `Pedido_Compra_${limpar(String(numero))}${forn ? `_${forn}` : ''}.pdf`
+}
+
+export async function gerarPdfDoPedido(pedidoId: string) {
   const [dados, logo] = await Promise.all([carregarDados(pedidoId), logoRecortada()])
   const bytes = await gerarPdfPedidoFornecedor(dados, logo)
-  const pedido = dados.pedido
-  const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+  const nomeArquivo = nomeArquivoPedido(dados.pedido.numero, dados.fornecedor?.nome)
+  return { bytes, nomeArquivo }
+}
+
+export function baixarArquivo(conteudo: BlobPart, tipo: string, nomeArquivo: string) {
+  const blob = new Blob([conteudo], { type: tipo })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `Pedido_Compra_${String(pedido.numero).replace(/[^\w-]+/g, '_')}.pdf`
+  a.download = nomeArquivo
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export async function baixarPdfPedidoFornecedor(pedidoId: string) {
+  const { bytes, nomeArquivo } = await gerarPdfDoPedido(pedidoId)
+  baixarArquivo(bytes as BlobPart, 'application/pdf', nomeArquivo)
 }

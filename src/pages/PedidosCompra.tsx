@@ -31,6 +31,7 @@ import {
   Loader2,
   CheckCircle2,
   Pencil,
+  Mail,
   CalendarClock,
   FileDown,
 } from 'lucide-react'
@@ -40,6 +41,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { PedidoParcelasPanel } from '@/components/compra/PedidoParcelasPanel'
 import { PedidoItensResumo } from '@/components/compra/PedidoItensResumo'
 import { EditarPedidoDialog } from '@/components/compra/EditarPedidoDialog'
+import { EnviarFornecedorDialog } from '@/components/compra/EnviarFornecedorDialog'
 import { baixarPdfPedidoFornecedor } from '@/lib/pdf-pedido-fornecedor'
 import {
   getPedidosCompra,
@@ -94,6 +96,7 @@ export default function PedidosCompra() {
   const [aprovandoId, setAprovandoId] = useState<string | null>(null)
   const [pedidoParaEditar, setPedidoParaEditar] = useState<PedidoCompraRow | null>(null)
   const [pdfId, setPdfId] = useState<string | null>(null)
+  const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
 
   // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
   async function baixarPdf(r: PedidoCompraRow) {
@@ -449,6 +452,16 @@ export default function PedidosCompra() {
                                 size="sm"
                                 variant="outline"
                                 className="h-7 px-2 text-xs"
+                                title="Abrir no Outlook o e-mail para o fornecedor, com o PDF anexado"
+                                onClick={() => setPedidoParaEnviar(r)}
+                              >
+                                <Mail className="w-3.5 h-3.5 mr-1" />
+                                Enviar ao fornecedor
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
                                 onClick={() => setPedidoParaEditar(r)}
                               >
                                 <Pencil className="w-3.5 h-3.5 mr-1" />
@@ -504,6 +517,8 @@ export default function PedidosCompra() {
           </Table>
         </div>
       </div>
+
+      <EnviarFornecedorDialog pedido={pedidoParaEnviar} onClose={() => setPedidoParaEnviar(null)} />
 
       <EditarPedidoDialog
         pedido={pedidoParaEditar}
