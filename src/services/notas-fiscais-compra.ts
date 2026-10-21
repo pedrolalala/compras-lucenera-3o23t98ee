@@ -19,6 +19,10 @@ export interface PedidoParaEntrada {
   empresa_nome: string | null
   valor_total: number | null
   condicoes_pagamento: string | null
+  // SPEC-215: fornecedor com CNPJ (pode ser trocado na entrada) e prazos para gerar as parcelas da nota
+  fornecedor_id: string
+  fornecedor_documento: string | null
+  prazo_pagamento_dias: number[] | null
   // SPEC-209 E: id e qtd_recebida para a entrada por item
   itens: Array<{
     id: string
@@ -27,6 +31,9 @@ export interface PedidoParaEntrada {
     produto_codigo: string | null
     quantidade: number
     qtd_recebida: number
+    /** SPEC-215: base da sugestão de valor/ST da nota (por unidade). */
+    custo_unitario: number
+    valor_st: number
   }>
 }
 
@@ -34,7 +41,7 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
   const { data: pedido, error } = await (supabase as any)
     .from('pedidos_compra')
     .select(
-      'id, numero, status, valor_total, condicoes_pagamento, contatos!fornecedor_id(nome), empresas(nome)',
+      'id, numero, status, valor_total, condicoes_pagamento, prazo_pagamento_dias, fornecedor_id, contatos!fornecedor_id(nome, cnpj, cpf_cnpj), empresas(nome)',
     )
     .ilike('numero', numero.trim())
     .maybeSingle()
@@ -44,7 +51,7 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
 
   const { data: itens } = await (supabase as any)
     .from('pedido_compra_itens')
-    .select('id, produto_id, quantidade, qtd_recebida, produtos(nome, codigo_produto)')
+    .select('id, produto_id, quantidade, qtd_recebida, custo_unitario, valor_st, produtos(nome, codigo_produto)')
     .eq('pedido_id', pedido.id)
     .order('criado_em', { ascending: true })
 
@@ -56,6 +63,9 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
     empresa_nome: pedido.empresas?.nome ?? null,
     valor_total: pedido.valor_total,
     condicoes_pagamento: pedido.condicoes_pagamento,
+    fornecedor_id: pedido.fornecedor_id,
+    fornecedor_documento: soDigitos(pedido.contatos?.cnpj || pedido.contatos?.cpf_cnpj),
+    prazo_pagamento_dias: pedido.prazo_pagamento_dias ?? null,
     itens: ((itens ?? []) as any[]).map((i) => ({
       id: i.id,
       produto_id: i.produto_id,
@@ -63,8 +73,117 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
       produto_codigo: i.produtos?.codigo_produto ? String(i.produtos.codigo_produto) : null,
       quantidade: Number(i.quantidade) || 0,
       qtd_recebida: Number(i.qtd_recebida) || 0,
+      custo_unitario: Number(i.custo_unitario) || 0,
+      valor_st: Number(i.valor_st) || 0,
     })),
   }
+}
+
+function soDigitos(v: string | null | undefined): string | null {
+  const d = (v ?? '').replace(/\D/g, '')
+  return d || null
+}
+
+/** SPEC-215: 14 dígitos = CNPJ, 11 = CPF; outro tamanho volta como veio. */
+export function formatarDocumento(doc: string | null | undefined): string {
+  const d = (doc ?? '').replace(/\D/g, '')
+  if (d.length === 14) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+  if (d.length === 11) return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+  return doc ?? ''
+}
+
+export async function getDocumentoFornecedor(fornecedorId: string): Promise<string | null> {
+  const { data } = await (supabase as any)
+    .from('contatos')
+    .select('cnpj, cpf_cnpj')
+    .eq('id', fornecedorId)
+    .maybeSingle()
+  return soDigitos(data?.cnpj || data?.cpf_cnpj)
+}
+
+// SPEC-215: vencimentos pela condição do pedido ("30/60/90" = dias; "15/11 e 15/12" = datas), a mesma
+// regra do banco que gera as parcelas do pedido ao aprovar.
+export async function datasDasParcelas(
+  condicoes: string | null,
+  prazoDias: number[] | null,
+  base: string,
+): Promise<string[]> {
+  const { data, error } = await (supabase as any).rpc('_lucenera_datas_parcelas', {
+    p_condicoes: condicoes ?? '',
+    p_prazo_dias: prazoDias,
+    p_base: base,
+  })
+  if (error) throw error
+  return (data ?? []) as string[]
+}
+
+// SPEC-215: pagamento antecipado (lançado na Adm. Bancária) com saldo para este pedido/fornecedor.
+export interface AntecipacaoEntrada {
+  id: string
+  fornecedor_nome: string
+  empresa_nome: string
+  pedido_numero: string | null
+  data_pagamento: string
+  valor: number
+  saldo: number
+  observacao: string | null
+}
+
+export async function getAntecipacoesParaEntrada(
+  pedidoId: string,
+  fornecedorId?: string | null,
+): Promise<AntecipacaoEntrada[]> {
+  const { data, error } = await (supabase as any).rpc('antecipacoes_para_entrada', {
+    p_pedido_id: pedidoId,
+    p_fornecedor_id: fornecedorId ?? null,
+  })
+  if (error) throw error
+  return ((data ?? []) as any[]).map((a) => ({
+    ...a,
+    valor: Number(a.valor) || 0,
+    saldo: Number(a.saldo) || 0,
+  }))
+}
+
+export interface RegistrarEntradaNotaInput {
+  pedido_id: string
+  itens: Array<{ pedido_item_id: string; quantidade: number }>
+  numero_nf: string
+  data_emissao: string | null
+  valor: number
+  valor_st: number | null
+  observacao: string | null
+  arquivo: File | null
+  parcelas: Array<{ data_vencimento: string; valor: number }>
+  antecipacoes: Array<{ pagamento_id: string; valor: number }>
+  /** Fornecedor da nota quando é outro: o pedido passa a ser dele. */
+  fornecedor_id: string | null
+}
+
+// SPEC-215: quantidades + nota + parcelas + antecipação numa transação só (RPC registrar_entrada_nota_compra).
+export async function registrarEntradaNotaCompra(
+  input: RegistrarEntradaNotaInput,
+): Promise<{ status: string; parcelas: number; antecipacao_aplicada: number; fornecedor_trocado: boolean }> {
+  const arquivoUrl = input.arquivo
+    ? await uploadArquivoNotaFiscalCompra(input.arquivo, input.pedido_id)
+    : null
+  const { data, error } = await (supabase as any).rpc('registrar_entrada_nota_compra', {
+    p_pedido_id: input.pedido_id,
+    p_itens: input.itens,
+    p_nota: {
+      numero_nf: input.numero_nf.trim(),
+      data_emissao: input.data_emissao,
+      valor: input.valor,
+      valor_st: input.valor_st,
+      arquivo_url: arquivoUrl,
+      observacao: input.observacao?.trim() || null,
+    },
+    p_parcelas: input.parcelas,
+    p_antecipacoes: input.antecipacoes,
+    p_fornecedor_id: input.fornecedor_id,
+  })
+  if (error) throw error
+  return data
 }
 
 export async function uploadArquivoNotaFiscalCompra(file: File, pedidoId: string): Promise<string> {

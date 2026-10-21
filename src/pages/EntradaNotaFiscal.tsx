@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw } from 'lucide-react'
+import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw, ArrowRightLeft } from 'lucide-react'
 import { StatusBadge } from '@/components/StatusBadge'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
@@ -27,7 +27,13 @@ import {
   buscarPedidoPorNumero,
   buscarProdutosParaEntrada,
   criarNotaFiscalCompra,
+  datasDasParcelas,
+  formatarDocumento,
+  getAntecipacoesParaEntrada,
+  getDocumentoFornecedor,
   getNotasFiscaisCompra,
+  registrarEntradaNotaCompra,
+  type AntecipacaoEntrada,
   type PedidoParaEntrada,
   type NotaFiscalCompraRow,
   type ProdutoBusca,
@@ -37,8 +43,13 @@ import {
   getEmpresas,
   type Fornecedor,
   type Empresa,
-  registrarEntradaPedidoCompra,
 } from '@/services/pedido-compra'
+import {
+  FinanceiroNotaEntrada,
+  dividirParcelas,
+  lerValor,
+  type ParcelaNota,
+} from '@/components/compra/FinanceiroNotaEntrada'
 
 function fmtBRL(n: number | null) {
   if (n == null) return '—'
@@ -106,6 +117,22 @@ export default function EntradaNotaFiscal() {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [salvando, setSalvando] = useState(false)
 
+  // SPEC-215: fornecedor da nota (quando veio em nome de outro: o pedido passa a ser dele), ST, parcelas
+  // editáveis e pagamento antecipado vinculado.
+  const [fornecedorNota, setFornecedorNota] = useState<
+    { id: string; nome: string; documento: string | null } | null
+  >(null)
+  const [trocandoFornecedor, setTrocandoFornecedor] = useState(false)
+  const [buscaFornNota, setBuscaFornNota] = useState('')
+  const [resultadosFornNota, setResultadosFornNota] = useState<Fornecedor[]>([])
+  const [valorEditado, setValorEditado] = useState(false)
+  const [valorSt, setValorSt] = useState('')
+  const [stEditado, setStEditado] = useState(false)
+  const [parcelas, setParcelas] = useState<ParcelaNota[]>([])
+  const [parcelasEditadas, setParcelasEditadas] = useState(false)
+  const [antecipacoes, setAntecipacoes] = useState<AntecipacaoEntrada[]>([])
+  const [usar, setUsar] = useState<Record<string, string>>({})
+
   const [historico, setHistorico] = useState<NotaFiscalCompraRow[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
 
@@ -153,6 +180,35 @@ export default function EntradaNotaFiscal() {
   }, [modo, fornecedorBusca])
 
   useEffect(() => {
+    if (!trocandoFornecedor || !buscaFornNota.trim()) {
+      setResultadosFornNota([])
+      return
+    }
+    const t = setTimeout(() => {
+      getFornecedores(buscaFornNota)
+        .then(setResultadosFornNota)
+        .catch(() => {})
+    }, 300)
+    return () => clearTimeout(t)
+  }, [trocandoFornecedor, buscaFornNota])
+
+  // SPEC-215: antecipações com saldo do fornecedor do pedido, do fornecedor da nota ou ligadas ao pedido.
+  useEffect(() => {
+    if (!pedido) {
+      setAntecipacoes([])
+      return
+    }
+    getAntecipacoesParaEntrada(pedido.id, fornecedorNota?.id)
+      .then((lista) => {
+        setAntecipacoes(lista)
+        setUsar((u) =>
+          Object.fromEntries(Object.entries(u).filter(([id]) => lista.some((a) => a.id === id))),
+        )
+      })
+      .catch(() => setAntecipacoes([]))
+  }, [pedido, fornecedorNota?.id])
+
+  useEffect(() => {
     if (modo !== 'avulsa' || !produtoBusca.trim()) {
       setProdutoResultados([])
       return
@@ -186,7 +242,7 @@ export default function EntradaNotaFiscal() {
             agruparPorPeca(result.itens).map((g) => [g.produto_id, String(g.falta)]),
           ),
         )
-        setValor(result.valor_total != null ? String(result.valor_total) : '')
+        setValor(result.valor_total != null ? Number(result.valor_total).toFixed(2) : '')
       } else {
         setNaoEncontrado(true)
       }
@@ -215,6 +271,15 @@ export default function EntradaNotaFiscal() {
     setValor('')
     setObservacao('')
     setArquivo(null)
+    setFornecedorNota(null)
+    setTrocandoFornecedor(false)
+    setBuscaFornNota('')
+    setValorEditado(false)
+    setValorSt('')
+    setStEditado(false)
+    setParcelas([])
+    setParcelasEditadas(false)
+    setUsar({})
   }
 
   function trocarModo(novo: 'pedido' | 'avulsa') {
@@ -245,37 +310,130 @@ export default function EntradaNotaFiscal() {
       ? !!pedido && !pedidoFechado && itensChegando.length > 0 && pecasAMais.length === 0
       : !!fornecedorSelecionado
 
+  // SPEC-215: sugestões (valor proporcional ao que chegou; ST = qtd × ST por unidade) até a pessoa digitar.
+  const chaveChegando = JSON.stringify(itensChegando)
+  useEffect(() => {
+    if (modo !== 'pedido' || !pedido) return
+    const porId = new Map(pedido.itens.map((i) => [i.id, i]))
+    const totalPedido = pedido.itens.reduce((s, i) => s + i.quantidade * i.custo_unitario, 0)
+    const chegando = itensChegando.reduce(
+      (s, c) => s + c.quantidade * (porId.get(c.pedido_item_id)?.custo_unitario ?? 0),
+      0,
+    )
+    if (!valorEditado && pedido.valor_total != null) {
+      const total = Number(pedido.valor_total)
+      const v = totalPedido > 0 ? (total * chegando) / totalPedido : total
+      setValor((Math.round(v * 100) / 100).toFixed(2))
+    }
+    if (!stEditado) {
+      const st = itensChegando.reduce(
+        (s, c) => s + c.quantidade * (porId.get(c.pedido_item_id)?.valor_st ?? 0),
+        0,
+      )
+      setValorSt(st > 0 ? (Math.round(st * 100) / 100).toFixed(2) : '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modo, pedido, chaveChegando, valorEditado, stEditado])
+
+  const valorNota = lerValor(valor)
+  const stNota = lerValor(valorSt)
+  const usado = Object.values(usar).reduce((s, v) => s + lerValor(v), 0)
+
+  async function refazerParcelas() {
+    if (!pedido) return
+    const restante = valorNota - usado
+    if (restante <= 0.005) {
+      setParcelas([])
+      return
+    }
+    const base = dataEmissao || new Date().toISOString().slice(0, 10)
+    let datas: string[] = []
+    try {
+      datas = await datasDasParcelas(pedido.condicoes_pagamento, pedido.prazo_pagamento_dias, base)
+    } catch {
+      // sem condição legível: 1 parcela em 30 dias, editável
+    }
+    if (datas.length === 0) {
+      const d = new Date(base + 'T12:00')
+      d.setDate(d.getDate() + 30)
+      datas = [d.toISOString().slice(0, 10)]
+    }
+    setParcelas(dividirParcelas(restante, stNota, datas))
+  }
+
+  useEffect(() => {
+    if (modo === 'pedido' && pedido && !parcelasEditadas) refazerParcelas()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modo, pedido, valorNota, stNota, usado, dataEmissao, parcelasEditadas])
+
+  const somaParcelas = parcelas.reduce((s, p) => s + lerValor(p.valor), 0)
+  const antecipacaoAcima = antecipacoes.some((a) => lerValor(usar[a.id] ?? '') > a.saldo + 0.001)
+  const financeiroOk =
+    valorNota > 0 &&
+    !antecipacaoAcima &&
+    usado <= valorNota + 0.001 &&
+    Math.abs(valorNota - usado - somaParcelas) <= 0.01 &&
+    parcelas.every((p) => p.data_vencimento && lerValor(p.valor) > 0)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!podeRegistrar || !numeroNf.trim()) return
+    if (modo === 'pedido' && !financeiroOk) return
     setSalvando(true)
     try {
-      // SPEC-209 E: primeiro a quantidade por item (o banco confere o que falta chegar e muda o
-      // status do pedido para Concluído / Concluído parcialmente); depois a nota.
-      let statusNovo: string | null = null
+      // SPEC-215: com pedido, quantidades + nota + parcelas + antecipação vão juntos numa RPC só
+      // (o banco confere o que falta chegar e muda o status do pedido).
       if (modo === 'pedido' && pedido) {
-        statusNovo = (await registrarEntradaPedidoCompra(pedido.id, itensChegando)).status
+        const r = await registrarEntradaNotaCompra({
+          pedido_id: pedido.id,
+          itens: itensChegando,
+          numero_nf: numeroNf,
+          data_emissao: dataEmissao || null,
+          valor: valorNota,
+          valor_st: stNota || null,
+          observacao: observacao || null,
+          arquivo,
+          parcelas: parcelas.map((p) => ({
+            data_vencimento: p.data_vencimento,
+            valor: lerValor(p.valor),
+          })),
+          antecipacoes: Object.entries(usar)
+            .map(([pagamento_id, v]) => ({ pagamento_id, valor: lerValor(v) }))
+            .filter((a) => a.valor > 0),
+          fornecedor_id: fornecedorNota?.id ?? null,
+        })
+        toast({
+          title: 'Entrada de nota fiscal registrada',
+          description: [
+            r.status === 'recebido'
+              ? 'Todos os itens chegaram: pedido Concluído.'
+              : 'Ainda falta chegar item: pedido Concluído parcialmente.',
+            r.parcelas > 0
+              ? `${r.parcelas} parcela(s) no Contas a Pagar.`
+              : 'Nota paga com pagamento antecipado (sem parcela).',
+            r.fornecedor_trocado ? `O pedido passou para ${fornecedorNota?.nome}.` : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        })
+        limparFormulario()
+        carregarHistorico()
+        return
       }
+
+      // Entrada avulsa (sem pedido): só a nota, como antes.
       await criarNotaFiscalCompra({
-        pedido_compra_id: modo === 'pedido' ? pedido!.id : null,
-        fornecedor_id: modo === 'avulsa' ? fornecedorSelecionado!.id : null,
-        empresa_id: modo === 'avulsa' ? empresaId || null : null,
-        produto_id: modo === 'avulsa' ? produtoSelecionado?.id || null : null,
+        pedido_compra_id: null,
+        fornecedor_id: fornecedorSelecionado!.id,
+        empresa_id: empresaId || null,
+        produto_id: produtoSelecionado?.id || null,
         numero_nf: numeroNf,
         data_emissao: dataEmissao || null,
         valor: valor ? parseFloat(valor) : null,
         observacao: observacao || null,
         arquivo,
       })
-      toast({
-        title: 'Entrada de nota fiscal registrada',
-        description:
-          statusNovo === 'recebido'
-            ? 'Todos os itens chegaram: pedido Concluído.'
-            : statusNovo === 'parcialmente_recebido'
-              ? 'Ainda falta chegar item: pedido Concluído parcialmente.'
-              : undefined,
-      })
+      toast({ title: 'Entrada de nota fiscal registrada' })
       limparFormulario()
       carregarHistorico()
     } catch (err: any) {
@@ -358,9 +516,81 @@ export default function EntradaNotaFiscal() {
                     <p className="text-slate-500">Pedido</p>
                     <p className="font-semibold">{pedido.numero}</p>
                   </div>
-                  <div>
+                  <div className="sm:col-span-2">
                     <p className="text-slate-500">Fornecedor</p>
-                    <p className="font-semibold">{pedido.fornecedor_nome}</p>
+                    <p className={cn('font-semibold', fornecedorNota && 'line-through text-slate-400')}>
+                      {pedido.fornecedor_nome}
+                    </p>
+                    <p className="text-xs text-slate-500 tabular-nums">
+                      {pedido.fornecedor_documento
+                        ? `CNPJ ${formatarDocumento(pedido.fornecedor_documento)}`
+                        : 'Sem CNPJ no cadastro'}
+                    </p>
+                    {fornecedorNota && (
+                      <div className="mt-1 rounded border border-amber-300 bg-amber-50 px-2 py-1">
+                        <p className="text-xs text-amber-800">Nota em nome de</p>
+                        <p className="font-semibold">{fornecedorNota.nome}</p>
+                        <p className="text-xs text-slate-600 tabular-nums">
+                          {fornecedorNota.documento
+                            ? `CNPJ ${formatarDocumento(fornecedorNota.documento)}`
+                            : 'Sem CNPJ no cadastro'}
+                        </p>
+                        <p className="text-[11px] text-amber-800">
+                          Ao registrar, o pedido passa a ser deste fornecedor.
+                        </p>
+                      </div>
+                    )}
+                    {!pedidoFechado && !trocandoFornecedor && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="link"
+                        className="h-auto p-0 text-xs"
+                        onClick={() => {
+                          if (fornecedorNota) setFornecedorNota(null)
+                          else setTrocandoFornecedor(true)
+                        }}
+                      >
+                        <ArrowRightLeft className="w-3 h-3 mr-1" />
+                        {fornecedorNota
+                          ? 'Voltar ao fornecedor do pedido'
+                          : 'Trocar fornecedor (nota veio em outro nome)'}
+                      </Button>
+                    )}
+                    {trocandoFornecedor && (
+                      <div className="relative mt-1 max-w-sm">
+                        <Input
+                          autoFocus
+                          className="h-8 text-sm"
+                          placeholder="Buscar fornecedor da nota..."
+                          value={buscaFornNota}
+                          onChange={(e) => setBuscaFornNota(e.target.value)}
+                          onBlur={() => setTimeout(() => setTrocandoFornecedor(false), 200)}
+                        />
+                        {buscaFornNota.trim() && resultadosFornNota.length > 0 && (
+                          <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-52">
+                            {resultadosFornNota
+                              .filter((f) => f.id !== pedido.fornecedor_id)
+                              .map((f) => (
+                                <button
+                                  key={f.id}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                                  onMouseDown={async (e) => {
+                                    e.preventDefault()
+                                    const documento = await getDocumentoFornecedor(f.id).catch(() => null)
+                                    setFornecedorNota({ id: f.id, nome: f.nome, documento })
+                                    setTrocandoFornecedor(false)
+                                    setBuscaFornNota('')
+                                  }}
+                                >
+                                  {f.nome}
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <p className="text-slate-500">Empresa</p>
@@ -369,6 +599,9 @@ export default function EntradaNotaFiscal() {
                   <div>
                     <p className="text-slate-500">Valor do pedido</p>
                     <p className="font-semibold">{fmtBRL(pedido.valor_total)}</p>
+                    {pedido.condicoes_pagamento && (
+                      <p className="text-xs text-slate-500">Condição: {pedido.condicoes_pagamento}</p>
+                    )}
                   </div>
                   <div className="sm:col-span-4 flex items-center gap-2">
                     <span className="text-slate-500">Situação:</span>
@@ -613,14 +846,30 @@ export default function EntradaNotaFiscal() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Valor</Label>
+                <Label>{modo === 'pedido' ? 'Valor total da nota *' : 'Valor'}</Label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  inputMode="decimal"
                   value={valor}
-                  onChange={(e) => setValor(e.target.value)}
+                  onChange={(e) => {
+                    setValor(e.target.value)
+                    setValorEditado(true)
+                  }}
                 />
               </div>
+              {modo === 'pedido' && (
+                <div className="space-y-2">
+                  <Label>Valor do ST destacado na nota</Label>
+                  <Input
+                    inputMode="decimal"
+                    placeholder="0,00"
+                    value={valorSt}
+                    onChange={(e) => {
+                      setValorSt(e.target.value)
+                      setStEditado(true)
+                    }}
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label className="flex items-center gap-1">
                   <Paperclip className="w-3.5 h-3.5" /> Anexo (PDF ou foto)
@@ -641,11 +890,36 @@ export default function EntradaNotaFiscal() {
                   onChange={(e) => setObservacao(e.target.value)}
                 />
               </div>
+              {modo === 'pedido' && (
+                <FinanceiroNotaEntrada
+                  valorNota={valorNota}
+                  valorSt={stNota}
+                  parcelas={parcelas}
+                  onParcelasChange={(p) => {
+                    setParcelas(p)
+                    setParcelasEditadas(true)
+                  }}
+                  onRefazer={() => {
+                    setParcelasEditadas(false)
+                    refazerParcelas()
+                  }}
+                  antecipacoes={antecipacoes}
+                  usar={usar}
+                  onUsarChange={(u) => {
+                    setUsar(u)
+                    setParcelasEditadas(false)
+                  }}
+                  disabled={salvando}
+                />
+              )}
               <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" onClick={limparFormulario}>
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={salvando || !numeroNf.trim()}>
+                <Button
+                  type="submit"
+                  disabled={salvando || !numeroNf.trim() || (modo === 'pedido' && !financeiroOk)}
+                >
                   {salvando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                   Registrar Entrada
                 </Button>
