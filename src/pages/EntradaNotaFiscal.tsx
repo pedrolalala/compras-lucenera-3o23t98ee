@@ -19,13 +19,24 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw, ArrowRightLeft } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog'
+import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw, ArrowRightLeft, Ban } from 'lucide-react'
 import { StatusBadge } from '@/components/StatusBadge'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import {
   buscarPedidoPorNumero,
   buscarProdutosParaEntrada,
+  cancelarEntradaNotaCompra,
   criarNotaFiscalCompra,
   datasDasParcelas,
   formatarDocumento,
@@ -44,6 +55,7 @@ import {
   type Fornecedor,
   type Empresa,
 } from '@/services/pedido-compra'
+import { traduzirStatusPedidoCompra } from '@/services/necessidade-compra'
 import {
   FinanceiroNotaEntrada,
   dividirParcelas,
@@ -136,6 +148,11 @@ export default function EntradaNotaFiscal() {
   const [historico, setHistorico] = useState<NotaFiscalCompraRow[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
 
+  // SPEC-218: cancelar uma entrada lançada sem querer (desfaz quantidades, status, A Pagar e antecipação).
+  const [notaParaCancelar, setNotaParaCancelar] = useState<NotaFiscalCompraRow | null>(null)
+  const [motivoCancelamento, setMotivoCancelamento] = useState('')
+  const [cancelando, setCancelando] = useState(false)
+
   const carregarHistorico = useCallback(async () => {
     setLoadingHistorico(true)
     try {
@@ -151,6 +168,38 @@ export default function EntradaNotaFiscal() {
   useEffect(() => {
     carregarHistorico()
   }, [carregarHistorico])
+
+  async function handleConfirmCancel() {
+    if (!notaParaCancelar || !motivoCancelamento.trim()) return
+    setCancelando(true)
+    try {
+      const res = await cancelarEntradaNotaCompra(notaParaCancelar.id, motivoCancelamento)
+      const devolvido = Number(res.antecipacao_devolvida) || 0
+      const partes = [
+        res.pedido_numero
+          ? `Pedido ${res.pedido_numero} voltou para "${traduzirStatusPedidoCompra(res.pedido_status)}".`
+          : null,
+        'As parcelas da nota saíram do Contas a Pagar.',
+        devolvido > 0 ? `${fmtBRL(devolvido)} de pagamento antecipado voltou a ter saldo.` : null,
+      ]
+      toast({
+        title: `Entrada da NF ${notaParaCancelar.numero_nf} cancelada`,
+        description: partes.filter(Boolean).join(' '),
+      })
+      // o pedido aberto no formulário mudou (quantidade recebida/status): fecha para buscar de novo
+      if (pedido && pedido.numero === notaParaCancelar.pedido_numero) setPedido(null)
+      setNotaParaCancelar(null)
+      await carregarHistorico()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao cancelar a entrada',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setCancelando(false)
+    }
+  }
 
   useEffect(() => {
     getEmpresas()
@@ -955,25 +1004,28 @@ export default function EntradaNotaFiscal() {
                 <TableHead className="text-xs">Emissão</TableHead>
                 <TableHead className="text-xs text-right">Valor</TableHead>
                 <TableHead className="text-xs text-center">Anexo</TableHead>
+                <TableHead className="text-xs text-center w-[110px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loadingHistorico ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-sm text-slate-400">
+                  <TableCell colSpan={8} className="text-center py-8 text-sm text-slate-400">
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : historico.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-sm text-slate-400">
+                  <TableCell colSpan={8} className="text-center py-8 text-sm text-slate-400">
                     Nenhuma entrada registrada ainda.
                   </TableCell>
                 </TableRow>
               ) : (
                 historico.map((nf) => (
-                  <TableRow key={nf.id}>
-                    <TableCell className="text-sm font-medium">{nf.numero_nf}</TableCell>
+                  <TableRow key={nf.id} className={cn(nf.cancelada_em && 'text-slate-400 bg-slate-50/60')}>
+                    <TableCell className={cn('text-sm font-medium', nf.cancelada_em && 'line-through')}>
+                      {nf.numero_nf}
+                    </TableCell>
                     <TableCell className="text-sm font-mono text-xs">
                       {nf.avulsa ? (
                         <span className="italic text-slate-400 font-sans">Avulsa (sem pedido)</span>
@@ -984,7 +1036,7 @@ export default function EntradaNotaFiscal() {
                     <TableCell className="text-sm">{nf.fornecedor_nome}</TableCell>
                     <TableCell className="text-sm">{nf.empresa_nome ?? '—'}</TableCell>
                     <TableCell className="text-sm">{fmtDate(nf.data_emissao)}</TableCell>
-                    <TableCell className="text-sm text-right font-mono">
+                    <TableCell className={cn('text-sm text-right font-mono', nf.cancelada_em && 'line-through')}>
                       {fmtBRL(nf.valor)}
                     </TableCell>
                     <TableCell className="text-center">
@@ -1001,6 +1053,29 @@ export default function EntradaNotaFiscal() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-center">
+                      {nf.cancelada_em ? (
+                        <span
+                          className="inline-block rounded bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600"
+                          title={`Cancelada em ${fmtDate(nf.cancelada_em)}${nf.motivo_cancelamento ? ` — ${nf.motivo_cancelamento}` : ''}`}
+                        >
+                          Cancelada
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            setMotivoCancelamento('')
+                            setNotaParaCancelar(nf)
+                          }}
+                        >
+                          <Ban className="w-3.5 h-3.5 mr-1" /> Cancelar
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -1008,6 +1083,46 @@ export default function EntradaNotaFiscal() {
           </Table>
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={notaParaCancelar != null}
+        onOpenChange={(open) => {
+          if (!open && !cancelando) setNotaParaCancelar(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar entrada da NF {notaParaCancelar?.numero_nf}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {notaParaCancelar?.avulsa
+                ? 'As parcelas da nota saem do Contas a Pagar.'
+                : `Desfaz tudo que esta entrada fez: a quantidade recebida volta no pedido ${notaParaCancelar?.pedido_numero} (e o status dele), as parcelas da nota saem do Contas a Pagar e o pagamento antecipado usado volta a ter saldo.`}{' '}
+              A nota continua na lista, marcada como cancelada. Se o fornecedor do pedido foi trocado nesta
+              entrada, ele não volta sozinho.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            placeholder="Motivo do cancelamento (obrigatório)"
+            value={motivoCancelamento}
+            onChange={(e) => setMotivoCancelamento(e.target.value)}
+            disabled={cancelando}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelando}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmCancel()
+              }}
+              disabled={cancelando || !motivoCancelamento.trim()}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {cancelando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Cancelar entrada
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

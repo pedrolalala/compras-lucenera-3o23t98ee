@@ -259,6 +259,9 @@ export interface NotaFiscalCompraRow {
   // SPEC-088: true quando a entrada não tem pedido de compra vinculado
   // (avulsa) — usado pra sinalizar na listagem.
   avulsa: boolean
+  // SPEC-218: entrada cancelada (fica na lista riscada, com o motivo)
+  cancelada_em: string | null
+  motivo_cancelamento: string | null
 }
 
 export async function getNotasFiscaisCompra(searchTerm?: string): Promise<NotaFiscalCompraRow[]> {
@@ -289,7 +292,22 @@ export async function getNotasFiscaisCompra(searchTerm?: string): Promise<NotaFi
     fornecedor_nome: d.pedidos_compra?.contatos?.nome ?? d.fornecedor?.nome ?? '—',
     empresa_nome: d.pedidos_compra?.empresas?.nome ?? d.empresa?.nome ?? null,
     avulsa: !d.pedido_compra_id,
+    cancelada_em: d.cancelada_em ?? null,
+    motivo_cancelamento: d.motivo_cancelamento ?? null,
   }))
+}
+
+// SPEC-218: desfaz a entrada (quantidade recebida, status do pedido, parcelas no A Pagar e antecipação usada).
+export async function cancelarEntradaNotaCompra(
+  notaId: string,
+  motivo: string,
+): Promise<{ pedido_numero: string | null; pedido_status: string | null; antecipacao_devolvida: number }> {
+  const { data, error } = await (supabase as any).rpc('cancelar_entrada_nota_compra', {
+    p_nota_id: notaId,
+    p_motivo: motivo.trim(),
+  })
+  if (error) throw error
+  return data
 }
 
 // SPEC-088: busca leve de produto pra vínculo opcional na entrada avulsa —
