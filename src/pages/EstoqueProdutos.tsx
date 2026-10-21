@@ -94,7 +94,12 @@ export default function EstoqueProdutos() {
     () => ({
       produtos: rows.length,
       estoqueTotal: rows.reduce((s, r) => s + r.qtd_estoque_itens, 0),
-      custoTotal: rows.reduce((s, r) => s + r.custo_total, 0),
+      // custo_total do produto é o custo de 1 unidade (com impostos): multiplica pelo estoque,
+      // igual ao "valor_custo_total" do Dash (v_estoque_produtos).
+      custoTotal: rows.reduce(
+        (s, r) => s + Math.round(Number(r.estoque_total) * Number(r.custo_total) * 100) / 100,
+        0,
+      ),
       semEstoque: rows.filter((r) => r.qtd_estoque_itens <= 0).length,
     }),
     [rows],
