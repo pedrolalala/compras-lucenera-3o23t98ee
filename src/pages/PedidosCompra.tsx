@@ -431,33 +431,34 @@ export default function PedidosCompra() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex justify-end gap-1 flex-wrap">
+                          {/* SPEC-211/214: PDF e Enviar ao fornecedor em todos os pedidos, qualquer status */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={pdfId === r.id}
+                            title="Baixar o PDF do pedido para enviar ao fornecedor"
+                            onClick={() => baixarPdf(r)}
+                          >
+                            {pdfId === r.id ? (
+                              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                            ) : (
+                              <FileDown className="w-3.5 h-3.5 mr-1" />
+                            )}
+                            PDF
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            title="Abrir no Outlook o e-mail para o fornecedor, com o PDF anexado"
+                            onClick={() => setPedidoParaEnviar(r)}
+                          >
+                            <Mail className="w-3.5 h-3.5 mr-1" />
+                            Enviar ao fornecedor
+                          </Button>
                           {aguardando && (
                             <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                disabled={pdfId === r.id}
-                                title="Baixar o PDF do pedido para enviar ao fornecedor"
-                                onClick={() => baixarPdf(r)}
-                              >
-                                {pdfId === r.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                                ) : (
-                                  <FileDown className="w-3.5 h-3.5 mr-1" />
-                                )}
-                                PDF
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                title="Abrir no Outlook o e-mail para o fornecedor, com o PDF anexado"
-                                onClick={() => setPedidoParaEnviar(r)}
-                              >
-                                <Mail className="w-3.5 h-3.5 mr-1" />
-                                Enviar ao fornecedor
-                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
