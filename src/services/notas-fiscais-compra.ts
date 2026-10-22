@@ -269,6 +269,8 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
   antecipacao_aplicada: number
   fornecedor_trocado: boolean
   reservado: number
+  /** SPEC-222: quanto entrou no estoque físico (Estoque Geral). */
+  estoque_somado: number
 }> {
   const arquivoUrl = input.arquivo
     ? await uploadArquivoNotaFiscalCompra(input.arquivo, input.pedido_id)
@@ -419,6 +421,8 @@ export async function cancelarEntradaNotaCompra(
   antecipacao_devolvida: number
   /** SPEC-220: quanto voltou da reserva para a entrega futura. */
   reserva_desfeita?: number
+  /** SPEC-222: quanto saiu do estoque físico (o que a nota tinha somado). */
+  estoque_retirado?: number
 }> {
   const { data, error } = await (supabase as any).rpc('cancelar_entrada_nota_compra', {
     p_nota_id: notaId,

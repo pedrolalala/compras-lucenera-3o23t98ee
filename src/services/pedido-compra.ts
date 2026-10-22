@@ -565,7 +565,7 @@ export async function editarPedidoCompra(
   return data
 }
 
-/** E: quantidade que chegou de cada item; o status do pedido muda sozinho. Não mexe em estoque. */
+/** E: quantidade que chegou de cada item; o status do pedido muda sozinho. Não mexe em estoque (a entrada da nota, SPEC-222, é que soma). */
 export async function registrarEntradaPedidoCompra(
   pedidoId: string,
   itens: { pedido_item_id: string; quantidade: number }[],

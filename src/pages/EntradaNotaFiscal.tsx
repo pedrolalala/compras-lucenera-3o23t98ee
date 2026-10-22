@@ -224,6 +224,9 @@ export default function EntradaNotaFiscal() {
         Number(res.reserva_desfeita) > 0
           ? `${fmtQtd(Number(res.reserva_desfeita))} peça(s) voltaram da reserva para a entrega futura.`
           : null,
+        Number(res.estoque_retirado) > 0
+          ? `${fmtQtd(Number(res.estoque_retirado))} peça(s) saíram do Estoque Geral.`
+          : null,
       ]
       toast({
         title: `Entrada da NF ${notaParaCancelar.numero_nf} cancelada`,
@@ -577,6 +580,9 @@ export default function EntradaNotaFiscal() {
               ? `${r.parcelas} parcela(s) no Contas a Pagar.`
               : 'Nota paga com pagamento antecipado (sem parcela).',
             r.fornecedor_trocado ? `O pedido passou para ${fornecedorNota?.nome}.` : '',
+            Number(r.estoque_somado) > 0
+              ? `${fmtQtd(Number(r.estoque_somado))} peça(s) entraram no Estoque Geral.`
+              : '',
             Number(r.reservado) > 0
               ? `${fmtQtd(Number(r.reservado))} peça(s) foram para a reserva dos clientes.`
               : '',
