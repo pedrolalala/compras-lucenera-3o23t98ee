@@ -54,7 +54,8 @@ const AppShell = () => {
           'w-full flex-1 min-h-0',
           isFullWidthRoute
             ? 'flex flex-col overflow-hidden'
-            : 'overflow-y-auto max-w-[1600px] mx-auto px-4 md:px-6 py-4 md:py-6',
+            : // SPEC-222: as outras abas com a mesma largura (tela inteira) e o mesmo espaçamento da Necessidade
+              'overflow-y-auto px-4 md:px-6 py-3',
         )}
       >
         <Suspense fallback={<LoadingFallback />}>
