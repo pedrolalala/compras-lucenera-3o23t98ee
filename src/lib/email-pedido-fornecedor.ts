@@ -53,6 +53,7 @@ function cabecalhoUtf8(texto: string) {
 
 export function montarEml(opts: {
   para: string[]
+  copia?: string[]
   assunto: string
   texto: string
   anexoNome: string
@@ -62,6 +63,7 @@ export function montarEml(opts: {
   const linhas = [
     'X-Unsent: 1',
     `To: ${opts.para.join(', ')}`,
+    ...(opts.copia?.length ? [`Cc: ${opts.copia.join(', ')}`] : []),
     `Subject: ${cabecalhoUtf8(opts.assunto)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${limite}"`,
@@ -87,7 +89,7 @@ export function montarEml(opts: {
 
 export async function baixarEmailPedido(
   pedidoId: string,
-  opts: { para: string[]; assunto: string; texto: string },
+  opts: { para: string[]; copia?: string[]; assunto: string; texto: string },
 ) {
   const { bytes, nomeArquivo } = await gerarPdfDoPedido(pedidoId)
   const eml = montarEml({ ...opts, anexoNome: nomeArquivo, anexoBytes: bytes })

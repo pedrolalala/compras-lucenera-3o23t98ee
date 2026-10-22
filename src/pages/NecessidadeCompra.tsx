@@ -31,7 +31,6 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
-import { ModalRegistrarCompra } from '@/components/compra/ModalRegistrarCompra'
 import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
 import { getEmpresas, type Empresa } from '@/services/pedido-compra'
@@ -71,8 +70,6 @@ export default function NecessidadeCompra() {
   const [selectedProdutoId, setSelectedProdutoId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [produtoParaCompra, setProdutoParaCompra] = useState<NecessidadeCompraRow | null>(null)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
 
   // SPEC-030 Parte 2: filtro por marca
@@ -675,17 +672,17 @@ export default function NecessidadeCompra() {
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <div className="flex justify-end gap-1">
+                                  {/* SPEC-222 F2: um caminho só para comprar — o pedido em montagem
+                                      (o "Comprar" direto abria outro formulário e confundia) */}
                                   <Button
                                     size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                                    onClick={() => {
-                                      setProdutoParaCompra(r)
-                                      setModalOpen(true)
-                                    }}
+                                    variant={produtosNoCarrinho.has(r.produto_id) ? 'default' : 'outline'}
+                                    className="h-7 px-2 text-xs"
+                                    disabled={!r.fornecedor_id}
+                                    onClick={() => toggleSelect(r)}
                                   >
                                     <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-                                    Comprar
+                                    {produtosNoCarrinho.has(r.produto_id) ? 'No pedido' : 'Pôr no pedido'}
                                   </Button>
                                 </div>
                               </TableCell>
@@ -709,17 +706,6 @@ export default function NecessidadeCompra() {
               <NecessidadeDetailsPanel produto={selectedProduto} />
             </div>
           </div>
-
-          <ModalRegistrarCompra
-            open={modalOpen}
-            onOpenChange={setModalOpen}
-            produto={produtoParaCompra}
-            onSuccess={() => {
-              setModalOpen(false)
-              loadData()
-            }}
-          />
-
 
           <ModalGerarCompraItemOrcamento
             open={fecharPedidoOpen}

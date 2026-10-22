@@ -73,15 +73,20 @@ export function CampoPercentual({
   )
 }
 
-/** Rodapé com os dois totais pedidos na reunião de 19/10. */
+/** Rodapé com os totais (reunião de 19/10). SPEC-222 F6/F7: IPI, ST e outras despesas separados e o campo de
+ *  desconto do pedido aqui mesmo (`desconto`), onde se fecha o valor. */
 export function TotaisCompra({
   totalProdutos,
   totalComImpostos,
   descontoPedidoPerc = 0,
+  impostos,
+  desconto,
 }: {
   totalProdutos: number
   totalComImpostos: number
   descontoPedidoPerc?: number
+  impostos?: { st: number; ipi: number; outras: number }
+  desconto?: React.ReactNode
 }) {
   if (totalProdutos <= 0 && totalComImpostos <= 0) return null
   return (
@@ -90,10 +95,24 @@ export function TotaisCompra({
         <span className="text-slate-600">Valor total dos produtos</span>
         <span className="font-semibold text-slate-800 tabular-nums">{brl(totalProdutos)}</span>
       </div>
+      {impostos &&
+        (
+          [
+            ['ST', impostos.st],
+            ['IPI', impostos.ipi],
+            ['Outras despesas', impostos.outras],
+          ] as [string, number][]
+        ).map(([rotulo, v]) => (
+          <div key={rotulo} className="flex justify-between gap-4 text-slate-600">
+            <span>+ {rotulo}</span>
+            <span className="tabular-nums">{brl(v)}</span>
+          </div>
+        ))}
       <div className="flex justify-between gap-4">
         <span className="text-slate-600">Valor total dos produtos com impostos</span>
         <span className="font-semibold text-slate-900 tabular-nums">{brl(totalComImpostos)}</span>
       </div>
+      {desconto && <div className="flex items-center justify-between gap-4">{desconto}</div>}
       {descontoPedidoPerc > 0 && (
         <div className="flex justify-between gap-4 text-emerald-700">
           <span>Com desconto do pedido de {descontoPedidoPerc}%</span>

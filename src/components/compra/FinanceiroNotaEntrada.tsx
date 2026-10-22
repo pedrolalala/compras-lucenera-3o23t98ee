@@ -87,7 +87,7 @@ export function FinanceiroNotaEntrada({
   }
 
   return (
-    <div className="sm:col-span-2 space-y-3 rounded-lg border border-slate-200 p-3">
+    <div className="sm:col-span-4 space-y-3 rounded-lg border border-slate-200 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Financeiro da nota</p>
 
       {antecipacoes.length > 0 && (

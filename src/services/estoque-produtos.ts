@@ -87,3 +87,19 @@ export async function getEstoqueProdutos(
 
   return allRows
 }
+
+// SPEC-222 F1: busca para o Pedido de compra avulso — qualquer produto ativo do cadastro, com ou sem
+// necessidade (só os primeiros resultados; a pessoa refina a busca).
+export async function buscarProdutosParaPedido(searchTerm: string, limite = 40): Promise<EstoqueProdutoRow[]> {
+  if (!searchTerm.trim()) return []
+  const { data, error } = await applySearch(
+    (supabase as any)
+      .from('vw_estoque_produtos')
+      .select('*')
+      .order('produto_codigo', { ascending: true, nullsFirst: false })
+      .limit(limite),
+    searchTerm,
+  )
+  if (error) throw error
+  return (data ?? []) as EstoqueProdutoRow[]
+}

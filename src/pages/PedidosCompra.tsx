@@ -47,6 +47,7 @@ import {
   getPedidosCompra,
   cancelarPedidoCompra,
   aprovarPedidoCompra,
+  voltarPedidoParaEdicao,
   STATUS_PEDIDO_COMPRA,
   STATUS_PEDIDO_COMPRA_ABERTO,
   STATUS_PEDIDO_COMPRA_CANCELAVEL,
@@ -95,6 +96,10 @@ export default function PedidosCompra() {
   const [cancelando, setCancelando] = useState(false)
   const [aprovandoId, setAprovandoId] = useState<string | null>(null)
   const [pedidoParaEditar, setPedidoParaEditar] = useState<PedidoCompraRow | null>(null)
+  // SPEC-222 D2: aprovado com erro (quantidade, desconto) volta para edição em vez de cancelar e refazer
+  const [pedidoParaVoltar, setPedidoParaVoltar] = useState<PedidoCompraRow | null>(null)
+  const [motivoVoltar, setMotivoVoltar] = useState('')
+  const [voltando, setVoltando] = useState(false)
   const [pdfId, setPdfId] = useState<string | null>(null)
   const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
 
@@ -193,24 +198,40 @@ export default function PedidosCompra() {
     }
   }
 
+  async function handleConfirmVoltar() {
+    if (!pedidoParaVoltar || !motivoVoltar.trim()) return
+    setVoltando(true)
+    try {
+      await voltarPedidoParaEdicao(pedidoParaVoltar.id, motivoVoltar)
+      toast({
+        title: `Pedido #${pedidoParaVoltar.numero} voltou para "Aguardando aprovar"`,
+        description: 'Edite e aprove de novo. Até lá ele não aparece no Contas a Pagar.',
+      })
+      setPedidoParaVoltar(null)
+      await loadData()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao voltar o pedido para edição',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setVoltando(false)
+    }
+  }
+
   async function aprovar(e: React.MouseEvent, pedido: PedidoCompraRow) {
     e.stopPropagation()
     setAprovandoId(pedido.id)
     try {
       const r = await aprovarPedidoCompra(pedido.id)
-      toast(
-        r.parcelas > 0
-          ? {
-              title: `Pedido #${pedido.numero} aprovado`,
-              description: `${r.parcelas} parcela(s) já no Contas a Pagar do Dashboard Financeiro.`,
-            }
-          : {
-              title: `Pedido #${pedido.numero} aprovado, mas sem parcelas`,
-              description:
-                'Sem condição de pagamento ele não entra no Contas a Pagar. Abra o pedido e lance as parcelas.',
-              variant: 'destructive',
-            },
-      )
+      // SPEC-222 F8: o banco só aprova com condição de pagamento (e parcelas, menos no antecipado)
+      toast({
+        title: `Pedido #${pedido.numero} aprovado`,
+        description: r.antecipado
+          ? 'Pagamento antecipado: não gera parcela (o pagamento já está no Contas a Pagar).'
+          : `${r.parcelas} parcela(s) já no Contas a Pagar do Dashboard Financeiro.`,
+      })
       await loadData()
     } catch (err: any) {
       toast({
@@ -232,7 +253,8 @@ export default function PedidosCompra() {
           </h1>
           <p className="text-slate-500 text-sm mt-1">
             Aguardando aprovar → Aprovado (fornecedor confirmou; as parcelas entram no Contas a Pagar)
-            → Concluído pela entrada da mercadoria. Edite enquanto o pedido aguarda aprovação.
+            → Concluído pela entrada da mercadoria. Edite enquanto o pedido aguarda aprovação; aprovado
+            com erro, use "Voltar para edição".
           </p>
         </div>
         <Button
@@ -483,6 +505,21 @@ export default function PedidosCompra() {
                               </Button>
                             </>
                           )}
+                          {r.status === 'aprovado' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              title="Errou quantidade ou valor? Volta para Aguardando aprovar para editar"
+                              onClick={() => {
+                                setMotivoVoltar('')
+                                setPedidoParaVoltar(r)
+                              }}
+                            >
+                              <Pencil className="w-3.5 h-3.5 mr-1" />
+                              Voltar para edição
+                            </Button>
+                          )}
                           {podeCancelar && (
                             <Button
                               size="sm"
@@ -531,6 +568,42 @@ export default function PedidosCompra() {
           loadData()
         }}
       />
+
+      <AlertDialog
+        open={pedidoParaVoltar != null}
+        onOpenChange={(open) => {
+          if (!open && !voltando) setPedidoParaVoltar(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Voltar o pedido #{pedidoParaVoltar?.numero} para edição</AlertDialogTitle>
+            <AlertDialogDescription>
+              O pedido volta para "Aguardando aprovar" para corrigir quantidade, valor ou desconto, e sai do
+              Contas a Pagar até ser aprovado de novo. Só vale para pedido sem entrada de nota.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            placeholder="Motivo (obrigatório) — ex.: quantidade errada"
+            value={motivoVoltar}
+            onChange={(e) => setMotivoVoltar(e.target.value)}
+            disabled={voltando}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voltando}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmVoltar()
+              }}
+              disabled={voltando || !motivoVoltar.trim()}
+            >
+              {voltando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Voltar para edição
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pedidoParaCancelar != null}

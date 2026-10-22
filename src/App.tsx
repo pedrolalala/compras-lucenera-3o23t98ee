@@ -14,8 +14,8 @@ import { SystemSwitcher } from './components/SystemSwitcher'
 // SPEC-123: code-splitting por rota (mesmo padrão já em produção no RH,
 // dashboard-rh-lucenera-5fe9c/src/App.tsx).
 const NecessidadeCompra = lazy(() => import('./pages/NecessidadeCompra'))
-const EstoqueProdutos = lazy(() => import('./pages/EstoqueProdutos'))
-const Cotacoes = lazy(() => import('./pages/Cotacoes'))
+// SPEC-222 F1/F2: "Estoque" virou o Pedido de compra avulso; a aba Cotações saiu (desconto fica no pedido)
+const PedidoAvulso = lazy(() => import('./pages/PedidoAvulso'))
 const Marcas = lazy(() => import('./pages/Marcas'))
 const PedidosCompra = lazy(() => import('./pages/PedidosCompra'))
 const EntradaNotaFiscal = lazy(() => import('./pages/EntradaNotaFiscal'))
@@ -62,11 +62,12 @@ const AppShell = () => {
             <Route element={<ProtectedRoute />}>
               <Route path="/" element={<NecessidadeCompra />} />
               <Route path="/necessidade-compra" element={<NecessidadeCompra />} />
-              <Route path="/estoque" element={<EstoqueProdutos />} />
+              <Route path="/pedido-avulso" element={<PedidoAvulso />} />
+              <Route path="/estoque" element={<Navigate to="/pedido-avulso" replace />} />
               <Route path="/marcas" element={<Marcas />} />
               {/* SPEC-209 D1: "Solicitações" deixou de existir; tudo fica em Pedidos. */}
               <Route path="/solicitacoes" element={<Navigate to="/pedidos" replace />} />
-              <Route path="/cotacoes" element={<Cotacoes />} />
+              <Route path="/cotacoes" element={<Navigate to="/pedidos" replace />} />
               <Route path="/pedidos" element={<PedidosCompra />} />
               <Route path="/recebimento" element={<EntradaNotaFiscal />} />
             </Route>

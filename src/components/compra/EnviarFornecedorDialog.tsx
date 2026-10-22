@@ -15,8 +15,10 @@ import { Loader2, Mail } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/use-auth'
 import {
+  getCopiasPedidoCompra,
   getEmailsFornecedor,
   getNomeUsuario,
+  salvarCopiasPedidoCompra,
   salvarEmailsFornecedor,
   type PedidoCompraRow,
 } from '@/services/pedido-compra'
@@ -46,6 +48,9 @@ export function EnviarFornecedorDialog({
   const [email, setEmail] = useState('')
   const [emailAlt, setEmailAlt] = useState('')
   const [original, setOriginal] = useState({ email: '', email_alternativo: '' })
+  // SPEC-222 G1: cópias fixas de quem envia (gravadas no usuário)
+  const [copias, setCopias] = useState('')
+  const [copiasOriginal, setCopiasOriginal] = useState('')
   const [assunto, setAssunto] = useState('')
   const [texto, setTexto] = useState('')
 
@@ -56,9 +61,12 @@ export function EnviarFornecedorDialog({
     Promise.all([
       getEmailsFornecedor(pedido.fornecedor_id),
       user?.id ? getNomeUsuario(user.id) : Promise.resolve(null),
+      user?.id ? getCopiasPedidoCompra(user.id) : Promise.resolve(''),
     ])
-      .then(([emails, nome]) => {
+      .then(([emails, nome, cc]) => {
         if (!ativo) return
+        setCopias(cc)
+        setCopiasOriginal(cc)
         setOriginal(emails)
         setEmail(emails.email)
         setEmailAlt(emails.email_alternativo)
@@ -79,7 +87,8 @@ export function EnviarFornecedorDialog({
   }, [pedido, user?.id, toast])
 
   const para = [...separarEmails(email), ...separarEmails(emailAlt)]
-  const invalidos = para.filter((e) => !emailValido(e))
+  const copia = separarEmails(copias)
+  const invalidos = [...para, ...copia].filter((e) => !emailValido(e))
 
   async function enviar() {
     if (!pedido) return
@@ -103,7 +112,19 @@ export function EnviarFornecedorDialog({
           })
         }
       }
-      await baixarEmailPedido(pedido.id, { para, assunto, texto })
+      if (user?.id && copias.trim() !== copiasOriginal.trim()) {
+        try {
+          await salvarCopiasPedidoCompra(user.id, copias)
+          setCopiasOriginal(copias)
+        } catch (err: any) {
+          toast({
+            title: 'As cópias não foram gravadas',
+            description: err?.message ?? 'O e-mail vai ser gerado mesmo assim.',
+            variant: 'destructive',
+          })
+        }
+      }
+      await baixarEmailPedido(pedido.id, { para, copia, assunto, texto })
       toast({
         title: 'E-mail pronto',
         description: 'Abra o arquivo baixado: o Outlook abre o e-mail com o PDF anexado.',
@@ -160,6 +181,18 @@ export function EnviarFornecedorDialog({
               Mais de um e-mail no mesmo campo: separe com ponto e vírgula. O que mudar aqui fica
               gravado no cadastro do fornecedor.
             </p>
+            <div className="space-y-1">
+              <Label htmlFor="env-copias">Cópia (sempre vai junto quando você envia)</Label>
+              <Input
+                id="env-copias"
+                value={copias}
+                onChange={(e) => setCopias(e.target.value)}
+                placeholder="comercial@...; ronaldo@...; vinicius@..."
+              />
+              <p className="text-[11px] text-slate-500">
+                Fica gravado no seu usuário para os próximos pedidos.
+              </p>
+            </div>
             {invalidos.length > 0 && (
               <p className="text-xs text-red-600">E-mail inválido: {invalidos.join(', ')}</p>
             )}

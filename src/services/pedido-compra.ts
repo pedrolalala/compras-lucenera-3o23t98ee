@@ -476,11 +476,14 @@ export const STATUS_PEDIDO_COMPRA: { value: string; label: string }[] = [
 
 export const STATUS_PEDIDO_COMPRA_ABERTO = ['aguardando_aprovar', 'aprovado', 'parcialmente_recebido']
 
-/** SPEC-209 F: aprovado entra no Contas a Pagar; `parcelas` = 0 quando não há condição de pagamento. */
-export async function aprovarPedidoCompra(pedidoId: string): Promise<{ parcelas: number }> {
+/** SPEC-209 F: aprovado entra no Contas a Pagar. SPEC-222 F8: o banco recusa sem condição de pagamento;
+ *  `antecipado` = já pago, não gera parcela. */
+export async function aprovarPedidoCompra(
+  pedidoId: string,
+): Promise<{ parcelas: number; antecipado?: boolean }> {
   const { data, error } = await (supabase as any).rpc('aprovar_pedido_compra', { p_pedido_id: pedidoId })
   if (error) throw error
-  return { parcelas: Number(data?.parcelas) || 0 }
+  return { parcelas: Number(data?.parcelas) || 0, antecipado: !!data?.antecipado }
 }
 
 export interface ItemDoPedido {
@@ -546,6 +549,16 @@ export interface EditarPedidoInput {
   desconto_percentual: number | null
   empresa_id: string | null
   local_entrega: string | null
+}
+
+// SPEC-222 D2: pedido aprovado (sem entrada de nota nem parcela paga) volta para "Aguardando aprovar"
+// para corrigir quantidade/valor; sai do Contas a Pagar até ser aprovado de novo.
+export async function voltarPedidoParaEdicao(pedidoId: string, motivo: string): Promise<void> {
+  const { error } = await (supabase as any).rpc('voltar_pedido_compra_para_edicao', {
+    p_pedido_id: pedidoId,
+    p_motivo: motivo,
+  })
+  if (error) throw error
 }
 
 export async function editarPedidoCompra(
@@ -656,6 +669,27 @@ export async function salvarEmailsFornecedor(
   if (error) throw error
   // Sem permissão o RLS não dá erro, só não atualiza nenhuma linha.
   if (!data?.length) throw new Error('Sem permissão para alterar o cadastro do fornecedor.')
+}
+
+// SPEC-222 G1: cópias fixas do e-mail ao fornecedor, por usuário (quem envia): ex. a Débora manda com cópia
+// para o comercial, o Ronaldo e o Vinicius. Fica em usuarios.copias_pedido_compra (o próprio usuário edita).
+export async function getCopiasPedidoCompra(usuarioId: string): Promise<string> {
+  const { data } = await (supabase as any)
+    .from('usuarios')
+    .select('copias_pedido_compra')
+    .eq('id', usuarioId)
+    .maybeSingle()
+  return data?.copias_pedido_compra ?? ''
+}
+
+export async function salvarCopiasPedidoCompra(usuarioId: string, copias: string): Promise<void> {
+  const { data, error } = await (supabase as any)
+    .from('usuarios')
+    .update({ copias_pedido_compra: copias.trim() || null })
+    .eq('id', usuarioId)
+    .select('id')
+  if (error) throw error
+  if (!data?.length) throw new Error('Não foi possível gravar as cópias no seu usuário.')
 }
 
 export async function getNomeUsuario(usuarioId: string): Promise<string | null> {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
-import { Loader2, X, Search, Plus, UserPlus } from 'lucide-react'
+import { Loader2, X, Search, Plus, UserPlus, Mail } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import {
   getFornecedoresDaMarca,
@@ -8,7 +9,12 @@ import {
   desvincularFornecedorDaMarca,
   type FornecedorDaMarca,
 } from '@/services/marcas'
-import { getFornecedores, type Fornecedor } from '@/services/pedido-compra'
+import {
+  getEmailsFornecedor,
+  getFornecedores,
+  salvarEmailsFornecedor,
+  type Fornecedor,
+} from '@/services/pedido-compra'
 import { FornecedorModal } from '@/components/fornecedores/FornecedorModal'
 import type { Fornecedor as FornecedorCompleto } from '@/services/fornecedores'
 
@@ -28,6 +34,43 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
   const [salvandoId, setSalvandoId] = useState<string | null>(null)
   const [modalAberto, setModalAberto] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // SPEC-222 G2: e-mails do fornecedor (os do "Enviar ao fornecedor") editados aqui também — mudou o contato
+  // na marca, troca aqui e o próximo pedido já vai certo.
+  const [emailsDe, setEmailsDe] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [emailAlt, setEmailAlt] = useState('')
+  const [salvandoEmail, setSalvandoEmail] = useState(false)
+
+  async function abrirEmails(f: FornecedorDaMarca) {
+    if (emailsDe === f.id) {
+      setEmailsDe(null)
+      return
+    }
+    setEmailsDe(f.id)
+    setEmail('')
+    setEmailAlt('')
+    try {
+      const e = await getEmailsFornecedor(f.id)
+      setEmail(e.email)
+      setEmailAlt(e.email_alternativo)
+    } catch {
+      // silencioso — campos ficam vazios
+    }
+  }
+
+  async function salvarEmails() {
+    if (!emailsDe) return
+    setSalvandoEmail(true)
+    try {
+      await salvarEmailsFornecedor(emailsDe, { email: email.trim(), email_alternativo: emailAlt.trim() })
+      toast({ title: 'E-mails do fornecedor salvos' })
+      setEmailsDe(null)
+    } catch (err: any) {
+      toast({ title: 'Erro ao salvar os e-mails', description: err?.message, variant: 'destructive' })
+    } finally {
+      setSalvandoEmail(false)
+    }
+  }
 
   async function carregar() {
     setLoading(true)
@@ -132,6 +175,14 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
               {f.nome}
               <button
                 type="button"
+                title="E-mails para enviar pedido"
+                onClick={() => abrirEmails(f)}
+                className="text-slate-400 hover:text-primary rounded-full p-0.5 hover:bg-primary/10"
+              >
+                <Mail className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
                 disabled={salvandoId === f.id}
                 onClick={() => remover(f)}
                 className="text-slate-400 hover:text-red-600 rounded-full p-0.5 hover:bg-red-50"
@@ -145,6 +196,37 @@ export function FornecedoresDaMarcaPanel({ marcaId }: { marcaId: string }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {emailsDe && (
+        <div className="max-w-xl rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+          <p className="text-xs font-medium text-slate-600">
+            E-mails de {fornecedores.find((f) => f.id === emailsDe)?.nome} para enviar pedido (vários: separe com ;)
+          </p>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <Input
+              className="h-8 text-sm"
+              placeholder="vendas@fornecedor.com.br"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <Input
+              className="h-8 text-sm"
+              placeholder="Outro e-mail (opcional)"
+              value={emailAlt}
+              onChange={(e) => setEmailAlt(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setEmailsDe(null)} disabled={salvandoEmail}>
+              Fechar
+            </Button>
+            <Button size="sm" onClick={salvarEmails} disabled={salvandoEmail}>
+              {salvandoEmail && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
+              Salvar e-mails
+            </Button>
+          </div>
+        </div>
       )}
 
       <div className="relative max-w-xs">

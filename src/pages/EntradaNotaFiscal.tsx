@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -164,7 +164,6 @@ export default function EntradaNotaFiscal() {
   const [trocandoFornecedor, setTrocandoFornecedor] = useState(false)
   const [buscaFornNota, setBuscaFornNota] = useState('')
   const [resultadosFornNota, setResultadosFornNota] = useState<Fornecedor[]>([])
-  const [valorEditado, setValorEditado] = useState(false)
   const [valorSt, setValorSt] = useState('')
   const [stEditado, setStEditado] = useState(false)
   const [parcelas, setParcelas] = useState<ParcelaNota[]>([])
@@ -178,6 +177,9 @@ export default function EntradaNotaFiscal() {
   const [dataEntrega, setDataEntrega] = useState(hoje)
   const [dataEntrada, setDataEntrada] = useState(hoje)
   const [desconto, setDesconto] = useState('')
+  // SPEC-222 B6/B7: IPI e ST da nota editáveis no resumo (começam com a soma dos itens)
+  const [ipiNota, setIpiNota] = useState('')
+  const [ipiEditado, setIpiEditado] = useState(false)
   const [despesasAcessorias, setDespesasAcessorias] = useState('')
   const [entregas, setEntregas] = useState<EntregaFutura[]>([])
   const [vinculos, setVinculos] = useState<Record<string, Record<string, string>>>({})
@@ -385,7 +387,6 @@ export default function EntradaNotaFiscal() {
     setFornecedorNota(null)
     setTrocandoFornecedor(false)
     setBuscaFornNota('')
-    setValorEditado(false)
     setValorSt('')
     setStEditado(false)
     setParcelas([])
@@ -396,6 +397,8 @@ export default function EntradaNotaFiscal() {
     setDataEntrega(hoje())
     setDataEntrada(hoje())
     setDesconto('')
+    setIpiNota('')
+    setIpiEditado(false)
     setDespesasAcessorias('')
     setEntregas([])
     setVinculos({})
@@ -444,15 +447,17 @@ export default function EntradaNotaFiscal() {
     },
     { produtos: 0, ipi: 0, st: 0 },
   )
-  const totalCalculado = r2(
-    r2(totaisItens.produtos) + r2(totaisItens.ipi) + r2(totaisItens.st) - lerValor(desconto) + lerValor(despesasAcessorias),
-  )
+  // SPEC-222 B3/B6: o valor da nota é o total pelos itens (não se digita mais); IPI e ST começam com a soma
+  // dos itens e podem ser corrigidos no resumo, junto com o desconto e as despesas acessórias.
   useEffect(() => {
     if (modo !== 'pedido' || !pedido) return
-    if (!valorEditado) setValor(totalCalculado > 0 ? totalCalculado.toFixed(2) : '')
+    if (!ipiEditado) setIpiNota(totaisItens.ipi > 0 ? r2(totaisItens.ipi).toFixed(2) : '')
     if (!stEditado) setValorSt(totaisItens.st > 0 ? r2(totaisItens.st).toFixed(2) : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modo, pedido, totalCalculado, totaisItens.st, valorEditado, stEditado])
+  }, [modo, pedido, totaisItens.ipi, totaisItens.st, ipiEditado, stEditado])
+  const totalCalculado = r2(
+    r2(totaisItens.produtos) + lerValor(ipiNota) + lerValor(valorSt) - lerValor(desconto) + lerValor(despesasAcessorias),
+  )
 
   // SPEC-220: para quem vai o que chegou — sugestão pelos L de origem do pedido até a pessoa mexer.
   const chaveChegou = JSON.stringify(chegou)
@@ -486,9 +491,8 @@ export default function EntradaNotaFiscal() {
   const chaveDigitos = chaveAcesso.replace(/\D/g, '')
   const chaveOk = chaveDigitos.length === 0 || chaveDigitos.length === 44
 
-  const valorNota = lerValor(valor)
+  const valorNota = modo === 'pedido' ? totalCalculado : lerValor(valor)
   const stNota = lerValor(valorSt)
-  const totalBate = Math.abs(valorNota - totalCalculado) <= 0.01
   const usado = Object.values(usar).reduce((s, v) => s + lerValor(v), 0)
 
   async function refazerParcelas() {
@@ -526,8 +530,8 @@ export default function EntradaNotaFiscal() {
     usado <= valorNota + 0.001 &&
     Math.abs(valorNota - usado - somaParcelas) <= 0.01 &&
     parcelas.every((p) => p.data_vencimento && lerValor(p.valor) > 0)
-  // SPEC-220: só registra com o total dos itens batendo com a nota, vínculos dentro do limite e chave válida
-  const entradaOk = financeiroOk && totalBate && vinculosOk && chaveOk
+  // SPEC-220: só registra com vínculos dentro do limite e chave válida (SPEC-222: o total é o dos itens)
+  const entradaOk = financeiroOk && vinculosOk && chaveOk && lerValor(desconto) >= 0
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -794,7 +798,7 @@ export default function EntradaNotaFiscal() {
                         Itens — informe quanto chegou agora (pedido fica Concluído quando tudo chegar)
                       </p>
                       <div className="overflow-x-auto">
-                      <table className="w-full min-w-[860px] text-xs bg-white rounded border border-slate-200">
+                      <table className="w-full min-w-[760px] text-xs bg-white rounded border border-slate-200">
                         <thead>
                           <tr className="text-slate-500 border-b border-slate-200">
                             <th className="text-left font-medium p-2">Produto</th>
@@ -805,9 +809,8 @@ export default function EntradaNotaFiscal() {
                             <th className="text-right font-medium p-2 w-24" title="Valor unitário na nota, sem IPI e ST">
                               Vl. unit.
                             </th>
-                            <th className="text-right font-medium p-2 w-20">IPI/un.</th>
-                            <th className="text-right font-medium p-2 w-20">ST/un.</th>
                             <th className="text-right font-medium p-2 w-24">Total</th>
+                            <th className="text-left font-medium p-2 w-44">Cliente</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -816,15 +819,11 @@ export default function EntradaNotaFiscal() {
                             const chegaAgora = Math.min(lerChegou(g.produto_id), g.falta)
                             const vp = valoresPeca[g.produto_id] ?? { vu: '', ipi: '', st: '' }
                             const v = valoresDe(g.produto_id)
-                            const mudarValor = (campo: keyof ValoresPeca, x: string) =>
-                              setValoresPeca((prev) => ({ ...prev, [g.produto_id]: { ...vp, [campo]: x } }))
                             const esperando = entregas.filter((e) => e.produto_id === g.produto_id)
-                            const meus = vinculos[g.produto_id] ?? {}
                             const vinculado = vinculadoDe(g.produto_id)
                             const vincAMais = vinculado > chegaAgora + 0.0001
                             return (
-                              <Fragment key={g.produto_id}>
-                              <tr className="border-b-0">
+                              <tr key={g.produto_id} className="border-b border-slate-100 last:border-0">
                                 <td className="p-2 text-slate-700">
                                   {g.produto_codigo && (
                                     <span className="font-mono text-slate-400 mr-1.5">
@@ -861,67 +860,57 @@ export default function EntradaNotaFiscal() {
                                     </span>
                                   )}
                                 </td>
-                                {(['vu', 'ipi', 'st'] as const).map((campo) => (
-                                  <td key={campo} className="p-2 text-right">
-                                    <Input
-                                      type="text"
-                                      inputMode="decimal"
-                                      className="h-8 w-20 ml-auto text-right text-sm"
-                                      value={vp[campo]}
-                                      disabled={pedidoFechado || g.falta <= 0}
-                                      onChange={(e) => mudarValor(campo, e.target.value)}
-                                    />
-                                  </td>
-                                ))}
-                                <td className="p-2 text-right tabular-nums font-medium">
-                                  {fmtBRL(r2(chegaAgora * (v.vu + v.ipi + v.st)))}
+                                <td className="p-2 text-right">
+                                  <Input
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="h-8 w-24 ml-auto text-right text-sm"
+                                    value={vp.vu}
+                                    disabled={pedidoFechado || g.falta <= 0}
+                                    onChange={(e) =>
+                                      setValoresPeca((prev) => ({
+                                        ...prev,
+                                        [g.produto_id]: { ...vp, vu: e.target.value },
+                                      }))
+                                    }
+                                  />
                                 </td>
-                              </tr>
-                              {chegaAgora > 0 && (
-                                <tr className="border-b border-slate-100 last:border-0">
-                                  <td colSpan={9} className="px-2 pb-2 pt-0">
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded bg-slate-50 px-2 py-1 text-[11px]">
-                                      <span className="text-slate-500">Para quem:</span>
-                                      {Object.entries(meus).length === 0 ? (
-                                        <span className="text-slate-500">
-                                          {esperando.length === 0
-                                            ? 'nenhuma venda espera esta peça — entra livre no estoque'
-                                            : 'nenhum cliente vinculado — entra livre no estoque'}
-                                        </span>
-                                      ) : (
-                                        Object.entries(meus).map(([pi, q]) => {
-                                          const e = esperando.find((x) => x.projeto_item_id === pi)
-                                          return (
-                                            <span key={pi} className="rounded bg-white border border-slate-200 px-1.5 py-0.5">
-                                              {e?.venda_numero ?? e?.orcamento_numero ?? '—'} ·{' '}
-                                              {e?.cliente_nome ?? '—'} · <span className="font-mono">{e?.l_fixo ?? '—'}</span>:{' '}
-                                              <strong>{fmtQtd(lerQtd(q))}</strong>
-                                            </span>
-                                          )
-                                        })
-                                      )}
-                                      <span className={cn(vincAMais ? 'text-red-600 font-medium' : 'text-slate-500')}>
-                                        vinculado {fmtQtd(vinculado)} de {fmtQtd(chegaAgora)}
+                                <td className="p-2 text-right tabular-nums font-medium">
+                                  {fmtBRL(r2(chegaAgora * v.vu))}
+                                </td>
+                                {/* SPEC-222 B1: só o botão para escolher o cliente, sem a lista de nomes */}
+                                <td className="p-2">
+                                  {chegaAgora <= 0 ? (
+                                    <span className="text-slate-400">—</span>
+                                  ) : esperando.length === 0 ? (
+                                    <span className="text-[11px] text-slate-500">entra livre no estoque</span>
+                                  ) : (
+                                    <div className="flex flex-col items-start gap-0.5">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-[11px]"
+                                        disabled={pedidoFechado}
+                                        onClick={() => setPecaVinculo(g.produto_id)}
+                                      >
+                                        <Users className="w-3 h-3 mr-1" /> Escolher cliente
+                                      </Button>
+                                      <span
+                                        className={cn(
+                                          'text-[11px]',
+                                          vincAMais ? 'text-red-600 font-medium' : 'text-slate-500',
+                                        )}
+                                      >
+                                        {fmtQtd(vinculado)} de {fmtQtd(chegaAgora)} vinculado
                                         {!vincAMais && chegaAgora - vinculado > 0.0001
-                                          ? ` · ${fmtQtd(chegaAgora - vinculado)} livre(s)`
+                                          ? ` · ${fmtQtd(chegaAgora - vinculado)} livre`
                                           : ''}
                                       </span>
-                                      {esperando.length > 0 && !pedidoFechado && (
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-6 px-2 text-[11px]"
-                                          onClick={() => setPecaVinculo(g.produto_id)}
-                                        >
-                                          <Users className="w-3 h-3 mr-1" /> Escolher clientes ({esperando.length})
-                                        </Button>
-                                      )}
                                     </div>
-                                  </td>
-                                </tr>
-                              )}
-                              </Fragment>
+                                  )}
+                                </td>
+                              </tr>
                             )
                           })}
                         </tbody>
@@ -1086,7 +1075,8 @@ export default function EntradaNotaFiscal() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {/* SPEC-222 B5: nº da nota e as três datas na mesma linha; chave de acesso embaixo, à esquerda */}
               <div className="space-y-2">
                 <Label>Número da NF *</Label>
                 <Input required value={numeroNf} onChange={(e) => setNumeroNf(e.target.value)} />
@@ -1099,21 +1089,17 @@ export default function EntradaNotaFiscal() {
                   onChange={(e) => setDataEmissao(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>{modo === 'pedido' ? 'Valor total da nota *' : 'Valor'}</Label>
-                <Input
-                  inputMode="decimal"
-                  value={valor}
-                  onChange={(e) => {
-                    setValor(e.target.value)
-                    setValorEditado(true)
-                  }}
-                />
-              </div>
-              {modo === 'pedido' && (
+              {modo === 'pedido' ? (
                 <>
-                  {/* SPEC-220: dados da nota (chave, datas) e o que entra no total além dos itens */}
                   <div className="space-y-2">
+                    <Label>Data de entrega</Label>
+                    <Input type="date" value={dataEntrega} onChange={(e) => setDataEntrega(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Data de entrada</Label>
+                    <Input type="date" value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
                     <Label>Chave de acesso (44 números, opcional)</Label>
                     <Input
                       inputMode="numeric"
@@ -1127,86 +1113,16 @@ export default function EntradaNotaFiscal() {
                       </p>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2">
-                      <Label>Data de entrega</Label>
-                      <Input type="date" value={dataEntrega} onChange={(e) => setDataEntrega(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Data de entrada</Label>
-                      <Input type="date" value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2">
-                      <Label>Desconto da nota (R$)</Label>
-                      <Input
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        value={desconto}
-                        onChange={(e) => setDesconto(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label title="Frete e outras despesas que vêm na nota">Despesas acessórias (R$)</Label>
-                      <Input
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        value={despesasAcessorias}
-                        onChange={(e) => setDespesasAcessorias(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2 rounded-lg border border-slate-200 p-3 text-xs">
-                    <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
-                      {[
-                        ['Produtos', r2(totaisItens.produtos)],
-                        ['IPI', r2(totaisItens.ipi)],
-                        ['ST', r2(totaisItens.st)],
-                        ['Desconto', -lerValor(desconto)],
-                        ['Desp. acessórias', lerValor(despesasAcessorias)],
-                        ['Total pelos itens', totalCalculado],
-                      ].map(([rot, val]) => (
-                        <div key={rot as string}>
-                          <p className="text-slate-500">{rot}</p>
-                          <p className="font-semibold tabular-nums">{fmtBRL(val as number)}</p>
-                        </div>
-                      ))}
-                      <div>
-                        <p className="text-slate-500">Diferença p/ a nota</p>
-                        <p className={cn('font-semibold tabular-nums', totalBate ? 'text-emerald-700' : 'text-red-600')}>
-                          {totalBate ? 'OK' : fmtBRL(r2(valorNota - totalCalculado))}
-                        </p>
-                      </div>
-                    </div>
-                    {!totalBate && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-red-700">
-                        O total dos itens não bate com o valor da nota: ajuste o valor unitário dos itens, o desconto ou
-                        as despesas acessórias.
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-[11px]"
-                          onClick={() => {
-                            setValor(totalCalculado.toFixed(2))
-                            setValorEditado(false)
-                          }}
-                        >
-                          Usar o total pelos itens
-                        </Button>
-                      </div>
-                    )}
-                    <p className="mt-2 text-slate-500">
-                      Apropriação: <strong>COMPRAS - REVENDA</strong> · entra no setor <strong>Estoque Geral</strong> ·
-                      "outras despesas" do pedido (ICMS recolhido depois) não entram na nota.
-                    </p>
-                  </div>
                 </>
+              ) : (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Valor</Label>
+                  <Input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} />
+                </div>
               )}
-              <div className="space-y-2">
+              <div className="space-y-2 sm:col-span-2">
                 <Label className="flex items-center gap-1">
-                  <Paperclip className="w-3.5 h-3.5" /> Anexo (PDF ou foto)
+                  <Paperclip className="w-3.5 h-3.5" /> Anexo da nota (PDF ou foto — só registro)
                 </Label>
                 <Input
                   type="file"
@@ -1215,7 +1131,57 @@ export default function EntradaNotaFiscal() {
                   className="cursor-pointer"
                 />
               </div>
-              <div className="space-y-2 sm:col-span-2">
+              {modo === 'pedido' && (
+                // SPEC-222 B2/B6/B7: resumo da nota — produtos é a soma dos itens (fixo); IPI, ST, desconto e
+                // despesas acessórias (em R$) editáveis; o total da nota sai daqui.
+                <div className="sm:col-span-4 rounded-lg border border-slate-200 p-3 text-xs">
+                  <p className="mb-2 font-semibold uppercase tracking-wide text-slate-600">Resumo da nota</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
+                    <div>
+                      <p className="text-slate-500 mb-1">Valor total dos produtos</p>
+                      <p className="h-8 flex items-center font-semibold tabular-nums">
+                        {fmtBRL(r2(totaisItens.produtos))}
+                      </p>
+                    </div>
+                    {(
+                      [
+                        ['IPI', ipiNota, (x: string) => {
+                          setIpiNota(x)
+                          setIpiEditado(true)
+                        }],
+                        ['ST', valorSt, (x: string) => {
+                          setValorSt(x)
+                          setStEditado(true)
+                        }],
+                        ['Desconto', desconto, setDesconto],
+                        ['Despesas acessórias', despesasAcessorias, setDespesasAcessorias],
+                      ] as [string, string, (x: string) => void][]
+                    ).map(([rotulo, v, mudar]) => (
+                      <div key={rotulo}>
+                        <p className="text-slate-500 mb-1">{rotulo} (R$)</p>
+                        <Input
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          className="h-8 text-right text-sm"
+                          value={v}
+                          onChange={(e) => mudar(e.target.value)}
+                        />
+                      </div>
+                    ))}
+                    <div>
+                      <p className="text-slate-500 mb-1">Valor total da nota</p>
+                      <p className="h-8 flex items-center font-bold text-sm tabular-nums">
+                        {fmtBRL(totalCalculado)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-slate-500">
+                    Apropriação: <strong>COMPRAS - REVENDA</strong> · entra no setor <strong>Estoque Geral</strong> ·
+                    "outras despesas" do pedido (ICMS recolhido depois) não entram na nota.
+                  </p>
+                </div>
+              )}
+              <div className="space-y-2 sm:col-span-4">
                 <Label>Observação (opcional)</Label>
                 <Textarea
                   rows={2}
@@ -1246,7 +1212,7 @@ export default function EntradaNotaFiscal() {
                   disabled={salvando}
                 />
               )}
-              <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
+              <div className="sm:col-span-4 flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" onClick={limparFormulario}>
                   Cancelar
                 </Button>
@@ -1393,7 +1359,7 @@ export default function EntradaNotaFiscal() {
             <AlertDialogDescription>
               {notaParaCancelar?.avulsa
                 ? 'As parcelas da nota saem do Contas a Pagar.'
-                : `Desfaz tudo que esta entrada fez: a quantidade recebida volta no pedido ${notaParaCancelar?.pedido_numero} (e o status dele), o que foi para a reserva dos clientes volta para a entrega futura, as parcelas da nota saem do Contas a Pagar e o pagamento antecipado usado volta a ter saldo.`}{' '}
+                : `Desfaz tudo que esta entrada fez: a quantidade recebida volta no pedido ${notaParaCancelar?.pedido_numero} — sem nada recebido, ele volta para "Aguardando aprovar", para editar ou cancelar —, o que entrou sai do Estoque Geral, o que foi para a reserva dos clientes volta para a entrega futura, as parcelas da nota saem do Contas a Pagar e o pagamento antecipado usado volta a ter saldo.`}{' '}
               A nota continua na lista, marcada como cancelada. Se o fornecedor do pedido foi trocado nesta
               entrada, ele não volta sozinho.
             </AlertDialogDescription>

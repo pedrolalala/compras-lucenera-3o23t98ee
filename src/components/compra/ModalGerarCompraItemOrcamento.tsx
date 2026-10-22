@@ -49,6 +49,7 @@ import {
   percentualParaCampo,
 } from '@/components/compra/custo-compra'
 import { ObservacaoCaixaFechada } from '@/components/compra/ObservacaoCaixaFechada'
+import { CondicaoPagamentoCampo } from '@/components/compra/CondicaoPagamentoCampo'
 import { useArrastavel } from '@/components/compra/use-arrastavel'
 
 // SPEC-155 (P3): remove as setinhas de incremento nativas dos campos
@@ -58,12 +59,13 @@ import { useArrastavel } from '@/components/compra/use-arrastavel'
 const NO_SPINNER =
   '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]'
 
-// SPEC-209 A: "Fechar pedido" do carrinho da Necessidade de Compra — um só caminho para montar o
-// pedido (antes havia o lote por produto inteiro e o por L de um produto só).
-//   - cada linha é um L (projeto_item_id) ou um produto inteiro sem L com saldo;
-//   - o mesmo produto pode vir em várias linhas (L diferentes): o vínculo de origem é feito por
-//     ÍNDICE do array (criar_pedido_compra_lote preserva a ordem de p_itens), nunca por produto_id;
-//   - vínculo de origem obrigatório para linha de L (P-03): falha aparece como toast claro.
+// SPEC-209 A: "Fechar pedido" do carrinho da Necessidade de Compra (e do Pedido avulso, SPEC-222 F1).
+// SPEC-222 F4: uma linha por PEÇA com a soma dos L escolhidos (a escolha de L e quantidade por L fica na
+// Necessidade) — com 10–15 dias sem comprar de um fornecedor, a lista por L ficava gigante para conferir.
+//   - o pedido grava um item por peça; o vínculo de origem (P-03) liga esse item a cada L, repartindo a
+//     quantidade na ordem do carrinho (mapeado por ÍNDICE: criar_pedido_compra_lote preserva a ordem);
+//   - pode comprar a mais (caixa fechada, desconto do fornecedor): o que passa da soma dos L fica sem vínculo;
+//     comprar a menos atende os primeiros L e o resto continua na necessidade.
 
 interface Props {
   open: boolean
@@ -76,13 +78,12 @@ interface Props {
 
 interface LinhaItem {
   chave: string
-  projeto_item_id: string | null
   produto_id: string
   produto: string
   produto_codigo: string | null
-  orcamento_numero: string | null
-  l_fixo: string | null
-  empresa_nome: string | null
+  /** L do carrinho desta peça (vazio = pedido avulso, sem venda). */
+  origens: LinhaCarrinho[]
+  qtdVendas: number
   quantidade: string
   // SPEC-209 B: preço de custo (já com desconto) + ST/IPI/outras despesas em % (sem ICMS)
   custoLiquido: string
@@ -128,18 +129,18 @@ export function ModalGerarCompraItemOrcamento({
 
   useEffect(() => {
     if (!open) return
+    const porPeca = new Map<string, LinhaCarrinho[]>()
+    for (const it of itens) porPeca.set(it.produto_id, [...(porPeca.get(it.produto_id) ?? []), it])
     setLinhas(
-      itens.map((it) => ({
-        chave: it.chave,
-        projeto_item_id: it.projeto_item_id,
-        produto_id: it.produto_id,
-        produto: it.produto,
-        produto_codigo: it.produto_codigo,
-        orcamento_numero: it.orcamento_numero,
-        l_fixo: it.l_fixo,
-        empresa_nome: it.empresa_nome,
-        quantidade: String(it.pendente_item),
-        custoLiquido: it.preco_custo != null ? String(it.preco_custo) : '',
+      Array.from(porPeca.values()).map((lista) => ({
+        chave: lista[0].produto_id,
+        produto_id: lista[0].produto_id,
+        produto: lista[0].produto,
+        produto_codigo: lista[0].produto_codigo,
+        origens: lista.filter((l) => l.projeto_item_id),
+        qtdVendas: lista.filter((l) => l.projeto_item_id).reduce((s, l) => s + l.pendente_item, 0),
+        quantidade: String(Math.round(lista.reduce((s, l) => s + l.pendente_item, 0) * 1000) / 1000),
+        custoLiquido: lista[0].preco_custo != null ? String(lista[0].preco_custo) : '',
         stPerc: '',
         ipiPerc: '',
         outrasPerc: '',
@@ -246,8 +247,8 @@ export function ModalGerarCompraItemOrcamento({
 
   const todasLinhasValidas = ativas.length > 0 && ativas.every((l) => l.qtd > 0 && l.custo > 0)
 
-  // SPEC-155 (P3): Empresa emitente obrigatória.
-  const canSubmit = todasLinhasValidas && !!empresaId && !loading
+  // SPEC-155 (P3): Empresa emitente obrigatória. SPEC-222 F8: condição de pagamento também.
+  const canSubmit = todasLinhasValidas && !!empresaId && !!condicoesPagamento.trim() && !loading
 
   // SPEC-209 B5: total dos produtos (preço de custo × qtd) e total com impostos.
   const totalProdutos = ativas.reduce(
@@ -258,11 +259,15 @@ export function ModalGerarCompraItemOrcamento({
     (s, l) => (l.qtd > 0 && l.custo > 0 ? s + l.qtd * l.custo : s),
     0,
   )
+  const somaImposto = (campo: 'valorStNum' | 'valorIpiNum' | 'valorOutrasNum') =>
+    ativas.reduce((s, l) => (l.qtd > 0 ? s + l.qtd * l[campo] : s), 0)
 
   // SPEC-155 (P3, achado do revisor): clampa em [0, 100] tanto pra prévia quanto pro valor enviado.
   const descontoNum = Math.min(100, Math.max(0, parseFloat(descontoPercentual) || 0))
 
-  const empresasDasLinhas = Array.from(new Set(ativas.map((i) => i.empresa_nome).filter(Boolean)))
+  const empresasDasLinhas = Array.from(
+    new Set(ativas.flatMap((i) => i.origens.map((o) => o.empresa_nome)).filter(Boolean)),
+  )
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -290,30 +295,35 @@ export function ModalGerarCompraItemOrcamento({
         local_entrega: localEntrega.trim() || undefined,
       })
 
-      // Vínculo de origem OBRIGATÓRIO (P-03) para linha de L — mapeado por índice.
+      // Vínculo de origem OBRIGATÓRIO (P-03) — item da peça (por índice) ligado a cada L, repartindo a
+      // quantidade comprada na ordem do carrinho.
       const falhas: string[] = []
       for (let i = 0; i < ativas.length; i++) {
         const linha = ativas[i]
-        if (!linha.projeto_item_id) continue
+        if (linha.origens.length === 0) continue
         const itemCriado = result.itens[i]
         if (!itemCriado) {
-          falhas.push(
-            `${linha.orcamento_numero ?? '—'} / ${linha.l_fixo ?? '—'} (${linha.produto}): item do pedido não retornado pela API.`,
-          )
+          falhas.push(`${linha.produto}: item do pedido não retornado pela API.`)
           continue
         }
+        let resta = linha.qtd
+        const vinculos = linha.origens
+          .map((o) => {
+            const q = Math.min(resta, o.pendente_item)
+            resta -= q
+            return { origem: o, q: Math.round(q * 1000) / 1000 }
+          })
+          .filter((v) => v.q > 0)
         try {
-          await vincularOrigemPedidoItem([
-            {
+          await vincularOrigemPedidoItem(
+            vinculos.map((v) => ({
               pedido_compra_item_id: itemCriado.pedido_item_id,
-              projeto_item_id: linha.projeto_item_id,
-              quantidade_atendida: linha.qtd,
-            },
-          ])
-        } catch (err: any) {
-          falhas.push(
-            `${linha.orcamento_numero ?? '—'} / ${linha.l_fixo ?? '—'} (${linha.produto}): ${err?.message ?? 'erro desconhecido'}`,
+              projeto_item_id: v.origem.projeto_item_id!,
+              quantidade_atendida: v.q,
+            })),
           )
+        } catch (err: any) {
+          falhas.push(`${linha.produto}: ${err?.message ?? 'erro desconhecido'}`)
         }
       }
 
@@ -375,9 +385,8 @@ export function ModalGerarCompraItemOrcamento({
             <Table>
               <TableHeader className="bg-slate-50">
                 <TableRow>
-                  <TableHead className="text-xs">Orçamento</TableHead>
-                  <TableHead className="text-xs">L Fixo</TableHead>
                   <TableHead className="text-xs">Produto</TableHead>
+                  <TableHead className="text-xs w-[150px]">Vendas</TableHead>
                   <TableHead className="text-xs w-[110px] text-right">Quantidade</TableHead>
                   {/* SPEC-209 B1/B2: sem ICMS; ordem Preço de custo · ST · IPI · Outras
                       despesas. % vem do cadastro e pode ser ajustado; o R$ aparece embaixo. */}
@@ -393,15 +402,6 @@ export function ModalGerarCompraItemOrcamento({
               <TableBody>
                 {linhasValidas.map((l) => (
                   <TableRow key={l.chave} className={cn(l.remover && 'opacity-50 line-through')}>
-                    <TableCell className="text-xs text-slate-600 whitespace-nowrap">
-                      {semPrefixo(l.orcamento_numero) || '—'}
-                      {l.empresa_nome && (
-                        <span className="block text-[10px] text-slate-400">{l.empresa_nome}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-600 whitespace-nowrap">
-                      {l.l_fixo ?? (l.projeto_item_id ? '—' : 'Produto inteiro')}
-                    </TableCell>
                     <TableCell className="text-sm">
                       <p className="font-medium text-slate-800 line-clamp-1">{l.produto}</p>
                       {l.produto_codigo && (
@@ -415,6 +415,29 @@ export function ModalGerarCompraItemOrcamento({
                           onSalvar={(obs, qtd) => salvarObservacao(l.produto_id, obs, qtd)}
                         />
                       </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600 align-top">
+                      {l.origens.length === 0 ? (
+                        <span className="text-slate-400">Avulso (estoque)</span>
+                      ) : (
+                        <span
+                          title={l.origens
+                            .map((o) => `${semPrefixo(o.orcamento_numero) || '—'} ${o.l_fixo ?? ''}: ${o.pendente_item}`)
+                            .join('\n')}
+                        >
+                          {l.origens.length} L · {l.qtdVendas} p/ vendas
+                          {l.qtd > l.qtdVendas + 0.0001 && (
+                            <span className="block text-[11px] text-emerald-700">
+                              +{Math.round((l.qtd - l.qtdVendas) * 1000) / 1000} a mais (estoque)
+                            </span>
+                          )}
+                          {l.qtd < l.qtdVendas - 0.0001 && l.qtd > 0 && (
+                            <span className="block text-[11px] text-amber-700">
+                              {Math.round((l.qtdVendas - l.qtd) * 1000) / 1000} continua na necessidade
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right align-top">
                       <Input
@@ -482,6 +505,26 @@ export function ModalGerarCompraItemOrcamento({
             totalProdutos={totalProdutos}
             totalComImpostos={totalComImpostos}
             descontoPedidoPerc={descontoNum}
+            impostos={{
+              st: somaImposto('valorStNum'),
+              ipi: somaImposto('valorIpiNum'),
+              outras: somaImposto('valorOutrasNum'),
+            }}
+            desconto={
+              <>
+                <Label className="text-slate-600 font-normal">Desconto negociado (%)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="0"
+                  className={cn('h-8 w-24 text-right text-sm bg-white', NO_SPINNER)}
+                  value={descontoPercentual}
+                  onChange={(e) => setDescontoPercentual(e.target.value)}
+                />
+              </>
+            }
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -521,19 +564,6 @@ export function ModalGerarCompraItemOrcamento({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm text-slate-600">Desconto negociado (%, opcional)</Label>
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                placeholder="0"
-                className={cn('h-11 text-sm', NO_SPINNER)}
-                value={descontoPercentual}
-                onChange={(e) => setDescontoPercentual(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
               <Label className="text-sm text-slate-600">Local de entrega (opcional)</Label>
               <Input
                 placeholder="ex: Depósito Ribeirão Preto"
@@ -558,18 +588,7 @@ export function ModalGerarCompraItemOrcamento({
                 </p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm text-slate-600">Condições de pagamento (opcional)</Label>
-              <Input
-                placeholder="30/60/90 (dias) ou datas: 15/11, 15/12"
-                className="h-11 text-sm"
-                value={condicoesPagamento}
-                onChange={(e) => setCondicoesPagamento(e.target.value)}
-              />
-              <p className="text-[11px] text-slate-500">
-                As parcelas são geradas em partes iguais (previsão de pagamento).
-              </p>
-            </div>
+            <CondicaoPagamentoCampo value={condicoesPagamento} onChange={setCondicoesPagamento} />
             <div className="space-y-2">
               <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
               <Input
@@ -614,7 +633,7 @@ export function ModalGerarCompraItemOrcamento({
               ) : (
                 <>
                   <PackageCheck className="w-4 h-4 mr-2" />
-                  Confirmar pedido ({ativas.length} {ativas.length === 1 ? 'item' : 'itens'})
+                  Confirmar pedido ({ativas.length} {ativas.length === 1 ? 'peça' : 'peças'})
                 </>
               )}
             </Button>

@@ -2,7 +2,6 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Package,
-  Quote,
   ShoppingCart,
   PackageCheck,
   Tags,
@@ -11,8 +10,7 @@ import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/', label: 'Necessidade de Compra', icon: LayoutDashboard },
-  { to: '/estoque', label: 'Estoque', icon: Package },
-  { to: '/cotacoes', label: 'Cotações', icon: Quote },
+  { to: '/pedido-avulso', label: 'Pedido de compra avulso', icon: Package },
   { to: '/pedidos', label: 'Pedidos', icon: ShoppingCart },
   { to: '/recebimento', label: 'Entrada de Nota Fiscal', icon: PackageCheck },
   { to: '/marcas', label: 'Marcas', icon: Tags },

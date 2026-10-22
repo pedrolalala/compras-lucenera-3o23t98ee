@@ -44,6 +44,7 @@ import {
   calcularCustoItem,
   lerNumero,
 } from '@/components/compra/custo-compra'
+import { CondicaoPagamentoCampo } from '@/components/compra/CondicaoPagamentoCampo'
 import { useArrastavel } from '@/components/compra/use-arrastavel'
 
 // SPEC-209 D3: o fornecedor respondeu (mudou quantidade, deu desconto, faltou item...) e a Débora
@@ -174,7 +175,9 @@ export function EditarPedidoDialog({
   const totalProdutos = ativas.reduce((s, l) => s + l.qtd * l.custo, 0)
   const totalComImpostos = ativas.reduce((s, l) => s + l.qtd * l.c.total, 0)
   const descontoNum = Math.min(100, Math.max(0, lerNumero(desconto)))
-  const valido = ativas.length > 0 && ativas.every((l) => l.qtd > 0 && l.c.total > 0)
+  // SPEC-222 F8: condição de pagamento obrigatória
+  const valido =
+    ativas.length > 0 && ativas.every((l) => l.qtd > 0 && l.c.total > 0) && !!condicoes.trim()
 
   async function salvar() {
     if (!pedido || !valido) return
@@ -345,6 +348,24 @@ export function EditarPedidoDialog({
               totalProdutos={totalProdutos}
               totalComImpostos={totalComImpostos}
               descontoPedidoPerc={descontoNum}
+              impostos={{
+                st: ativas.reduce((s, l) => s + l.qtd * l.c.st, 0),
+                ipi: ativas.reduce((s, l) => s + l.qtd * l.c.ipi, 0),
+                outras: ativas.reduce((s, l) => s + l.qtd * l.c.outras, 0),
+              }}
+              desconto={
+                <>
+                  <Label className="text-slate-600 font-normal">Desconto do pedido (%)</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="h-8 w-24 text-right text-sm bg-white"
+                    value={desconto}
+                    onChange={(e) => setDesconto(e.target.value)}
+                  />
+                </>
+              }
             />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -364,17 +385,6 @@ export function EditarPedidoDialog({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-sm text-slate-600">Desconto do pedido (%)</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="0"
-                  className="h-10 text-sm"
-                  value={desconto}
-                  onChange={(e) => setDesconto(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
                 <Label className="text-sm text-slate-600">Data prevista de entrega</Label>
                 <Input
                   type="date"
@@ -383,18 +393,7 @@ export function EditarPedidoDialog({
                   onChange={(e) => setDataPrevista(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm text-slate-600">Condições de pagamento</Label>
-                <Input
-                  placeholder="30/60/90 (dias) ou datas: 15/11, 15/12"
-                  className="h-10 text-sm"
-                  value={condicoes}
-                  onChange={(e) => setCondicoes(e.target.value)}
-                />
-                <p className="text-[11px] text-slate-500">
-                  As parcelas não pagas são refeitas em partes iguais ao salvar.
-                </p>
-              </div>
+              <CondicaoPagamentoCampo value={condicoes} onChange={setCondicoes} />
               <div className="space-y-1.5">
                 <Label className="text-sm text-slate-600">Local de entrega</Label>
                 <Input
