@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -29,7 +29,18 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from '@/components/ui/alert-dialog'
-import { Search, FileText, Loader2, Paperclip, ExternalLink, RefreshCw, ArrowRightLeft, Ban } from 'lucide-react'
+import {
+  Search,
+  FileText,
+  Loader2,
+  Paperclip,
+  ExternalLink,
+  RefreshCw,
+  ArrowRightLeft,
+  Ban,
+  Users,
+  ScrollText,
+} from 'lucide-react'
 import { StatusBadge } from '@/components/StatusBadge'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
@@ -42,9 +53,11 @@ import {
   formatarDocumento,
   getAntecipacoesParaEntrada,
   getDocumentoFornecedor,
+  getEntregasFuturas,
   getNotasFiscaisCompra,
   registrarEntradaNotaCompra,
   type AntecipacaoEntrada,
+  type EntregaFutura,
   type PedidoParaEntrada,
   type NotaFiscalCompraRow,
   type ProdutoBusca,
@@ -62,7 +75,21 @@ import {
   lerValor,
   type ParcelaNota,
 } from '@/components/compra/FinanceiroNotaEntrada'
+import {
+  VinculoClientesDialog,
+  lerQtd,
+  sugerirVinculos,
+} from '@/components/compra/VinculoClientesDialog'
+import { EspelhoEntradaDialog } from '@/components/compra/EspelhoEntradaDialog'
 
+const hoje = () => new Date().toISOString().slice(0, 10)
+const r2 = (n: number) => Math.round(n * 100) / 100
+// SPEC-220: valores da nota por unidade, por peça (sem IPI/ST no valor unitário)
+interface ValoresPeca {
+  vu: string
+  ipi: string
+  st: string
+}
 function fmtBRL(n: number | null) {
   if (n == null) return '—'
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -145,6 +172,19 @@ export default function EntradaNotaFiscal() {
   const [antecipacoes, setAntecipacoes] = useState<AntecipacaoEntrada[]>([])
   const [usar, setUsar] = useState<Record<string, string>>({})
 
+  // SPEC-220 (reunião Vinicius 21/10): valores por item, dados da nota, vínculo com o cliente e espelho.
+  const [valoresPeca, setValoresPeca] = useState<Record<string, ValoresPeca>>({})
+  const [chaveAcesso, setChaveAcesso] = useState('')
+  const [dataEntrega, setDataEntrega] = useState(hoje)
+  const [dataEntrada, setDataEntrada] = useState(hoje)
+  const [desconto, setDesconto] = useState('')
+  const [despesasAcessorias, setDespesasAcessorias] = useState('')
+  const [entregas, setEntregas] = useState<EntregaFutura[]>([])
+  const [vinculos, setVinculos] = useState<Record<string, Record<string, string>>>({})
+  const [vinculosEditados, setVinculosEditados] = useState<Record<string, boolean>>({})
+  const [pecaVinculo, setPecaVinculo] = useState<string | null>(null)
+  const [espelhoNotaId, setEspelhoNotaId] = useState<string | null>(null)
+
   const [historico, setHistorico] = useState<NotaFiscalCompraRow[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
 
@@ -181,6 +221,9 @@ export default function EntradaNotaFiscal() {
           : null,
         'As parcelas da nota saíram do Contas a Pagar.',
         devolvido > 0 ? `${fmtBRL(devolvido)} de pagamento antecipado voltou a ter saldo.` : null,
+        Number(res.reserva_desfeita) > 0
+          ? `${fmtQtd(Number(res.reserva_desfeita))} peça(s) voltaram da reserva para a entrega futura.`
+          : null,
       ]
       toast({
         title: `Entrada da NF ${notaParaCancelar.numero_nf} cancelada`,
@@ -292,6 +335,22 @@ export default function EntradaNotaFiscal() {
           ),
         )
         setValor(result.valor_total != null ? Number(result.valor_total).toFixed(2) : '')
+        // SPEC-220: valores da nota já preenchidos do pedido (por peça; sem IPI/ST no valor unitário)
+        setValoresPeca(
+          Object.fromEntries(
+            agruparPorPeca(result.itens).map((g) => {
+              const i = g.itens[0]
+              const vu = i.custo_liquido ?? Math.max(0, i.custo_unitario - i.valor_ipi - i.valor_st)
+              const q4 = (n: number) => String(Math.round(n * 10000) / 10000)
+              return [g.produto_id, { vu: q4(vu), ipi: q4(i.valor_ipi), st: q4(i.valor_st) }]
+            }),
+          ),
+        )
+        setVinculos({})
+        setVinculosEditados({})
+        getEntregasFuturas(Array.from(new Set(result.itens.map((i) => i.produto_id))))
+          .then(setEntregas)
+          .catch(() => setEntregas([]))
       } else {
         setNaoEncontrado(true)
       }
@@ -329,6 +388,15 @@ export default function EntradaNotaFiscal() {
     setParcelas([])
     setParcelasEditadas(false)
     setUsar({})
+    setValoresPeca({})
+    setChaveAcesso('')
+    setDataEntrega(hoje())
+    setDataEntrada(hoje())
+    setDesconto('')
+    setDespesasAcessorias('')
+    setEntregas([])
+    setVinculos({})
+    setVinculosEditados({})
   }
 
   function trocarModo(novo: 'pedido' | 'avulsa') {
@@ -359,33 +427,65 @@ export default function EntradaNotaFiscal() {
       ? !!pedido && !pedidoFechado && itensChegando.length > 0 && pecasAMais.length === 0
       : !!fornecedorSelecionado
 
-  // SPEC-215: sugestões (valor proporcional ao que chegou; ST = qtd × ST por unidade) até a pessoa digitar.
-  const chaveChegando = JSON.stringify(itensChegando)
+  // SPEC-220: totais da nota pelos itens (o que chegou × valores da nota): produtos + IPI + ST − desconto
+  // + despesas acessórias. As "outras despesas" do pedido (ICMS recolhido depois) não entram na nota.
+  const valoresDe = (produtoId: string) => {
+    const v = valoresPeca[produtoId]
+    return { vu: lerValor(v?.vu ?? ''), ipi: lerValor(v?.ipi ?? ''), st: lerValor(v?.st ?? '') }
+  }
+  const totaisItens = pecas.reduce(
+    (t, g) => {
+      const q = Math.min(lerChegou(g.produto_id), g.falta)
+      const v = valoresDe(g.produto_id)
+      return { produtos: t.produtos + q * v.vu, ipi: t.ipi + q * v.ipi, st: t.st + q * v.st }
+    },
+    { produtos: 0, ipi: 0, st: 0 },
+  )
+  const totalCalculado = r2(
+    r2(totaisItens.produtos) + r2(totaisItens.ipi) + r2(totaisItens.st) - lerValor(desconto) + lerValor(despesasAcessorias),
+  )
   useEffect(() => {
     if (modo !== 'pedido' || !pedido) return
-    const porId = new Map(pedido.itens.map((i) => [i.id, i]))
-    const totalPedido = pedido.itens.reduce((s, i) => s + i.quantidade * i.custo_unitario, 0)
-    const chegando = itensChegando.reduce(
-      (s, c) => s + c.quantidade * (porId.get(c.pedido_item_id)?.custo_unitario ?? 0),
-      0,
-    )
-    if (!valorEditado && pedido.valor_total != null) {
-      const total = Number(pedido.valor_total)
-      const v = totalPedido > 0 ? (total * chegando) / totalPedido : total
-      setValor((Math.round(v * 100) / 100).toFixed(2))
-    }
-    if (!stEditado) {
-      const st = itensChegando.reduce(
-        (s, c) => s + c.quantidade * (porId.get(c.pedido_item_id)?.valor_st ?? 0),
-        0,
-      )
-      setValorSt(st > 0 ? (Math.round(st * 100) / 100).toFixed(2) : '')
-    }
+    if (!valorEditado) setValor(totalCalculado > 0 ? totalCalculado.toFixed(2) : '')
+    if (!stEditado) setValorSt(totaisItens.st > 0 ? r2(totaisItens.st).toFixed(2) : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modo, pedido, chaveChegando, valorEditado, stEditado])
+  }, [modo, pedido, totalCalculado, totaisItens.st, valorEditado, stEditado])
+
+  // SPEC-220: para quem vai o que chegou — sugestão pelos L de origem do pedido até a pessoa mexer.
+  const chaveChegou = JSON.stringify(chegou)
+  useEffect(() => {
+    if (modo !== 'pedido' || !pedido) return
+    setVinculos((atual) => {
+      const novo = { ...atual }
+      for (const g of pecas) {
+        if (vinculosEditados[g.produto_id]) continue
+        novo[g.produto_id] = sugerirVinculos(
+          Math.min(lerChegou(g.produto_id), g.falta),
+          g.itens.flatMap((i) => i.origens),
+          entregas.filter((e) => e.produto_id === g.produto_id),
+        )
+      }
+      return novo
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modo, pedido, chaveChegou, entregas, vinculosEditados])
+
+  const vinculadoDe = (produtoId: string) =>
+    Object.values(vinculos[produtoId] ?? {}).reduce((s, x) => s + lerQtd(x), 0)
+  const vinculosOk = pecas.every((g) => {
+    const chegaAgora = Math.min(lerChegou(g.produto_id), g.falta)
+    if (vinculadoDe(g.produto_id) > chegaAgora + 0.0001) return false
+    return Object.entries(vinculos[g.produto_id] ?? {}).every(([pi, x]) => {
+      const e = entregas.find((en) => en.projeto_item_id === pi)
+      return !!e && lerQtd(x) >= 0 && lerQtd(x) <= e.q_entrega_futura + 0.0001
+    })
+  })
+  const chaveDigitos = chaveAcesso.replace(/\D/g, '')
+  const chaveOk = chaveDigitos.length === 0 || chaveDigitos.length === 44
 
   const valorNota = lerValor(valor)
   const stNota = lerValor(valorSt)
+  const totalBate = Math.abs(valorNota - totalCalculado) <= 0.01
   const usado = Object.values(usar).reduce((s, v) => s + lerValor(v), 0)
 
   async function refazerParcelas() {
@@ -423,19 +523,35 @@ export default function EntradaNotaFiscal() {
     usado <= valorNota + 0.001 &&
     Math.abs(valorNota - usado - somaParcelas) <= 0.01 &&
     parcelas.every((p) => p.data_vencimento && lerValor(p.valor) > 0)
+  // SPEC-220: só registra com o total dos itens batendo com a nota, vínculos dentro do limite e chave válida
+  const entradaOk = financeiroOk && totalBate && vinculosOk && chaveOk
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!podeRegistrar || !numeroNf.trim()) return
-    if (modo === 'pedido' && !financeiroOk) return
+    if (modo === 'pedido' && !entradaOk) return
     setSalvando(true)
     try {
       // SPEC-215: com pedido, quantidades + nota + parcelas + antecipação vão juntos numa RPC só
       // (o banco confere o que falta chegar e muda o status do pedido).
       if (modo === 'pedido' && pedido) {
+        const produtoDoItem = new Map(pedido.itens.map((i) => [i.id, i.produto_id]))
         const r = await registrarEntradaNotaCompra({
           pedido_id: pedido.id,
-          itens: itensChegando,
+          itens: itensChegando.map((it) => {
+            const v = valoresDe(produtoDoItem.get(it.pedido_item_id) ?? '')
+            return { ...it, valor_unitario: v.vu, valor_ipi: v.ipi, valor_st: v.st }
+          }),
+          chave_acesso: chaveDigitos || null,
+          data_entrega: dataEntrega || null,
+          data_entrada: dataEntrada || null,
+          valor_desconto: lerValor(desconto) || null,
+          valor_despesas_acessorias: lerValor(despesasAcessorias) || null,
+          vinculos: Object.entries(vinculos).flatMap(([produto_id, porL]) =>
+            Object.entries(porL)
+              .map(([projeto_item_id, q]) => ({ produto_id, projeto_item_id, quantidade: lerQtd(q) }))
+              .filter((x) => x.quantidade > 0),
+          ),
           numero_nf: numeroNf,
           data_emissao: dataEmissao || null,
           valor: valorNota,
@@ -461,12 +577,17 @@ export default function EntradaNotaFiscal() {
               ? `${r.parcelas} parcela(s) no Contas a Pagar.`
               : 'Nota paga com pagamento antecipado (sem parcela).',
             r.fornecedor_trocado ? `O pedido passou para ${fornecedorNota?.nome}.` : '',
+            Number(r.reservado) > 0
+              ? `${fmtQtd(Number(r.reservado))} peça(s) foram para a reserva dos clientes.`
+              : '',
           ]
             .filter(Boolean)
             .join(' '),
         })
         limparFormulario()
         carregarHistorico()
+        // SPEC-220: já mostra o espelho da entrada (para o Mateus)
+        if (r.nota_id) setEspelhoNotaId(r.nota_id)
         return
       }
 
@@ -666,21 +787,38 @@ export default function EntradaNotaFiscal() {
                       <p className="text-slate-500 mb-1">
                         Itens — informe quanto chegou agora (pedido fica Concluído quando tudo chegar)
                       </p>
-                      <table className="w-full text-xs bg-white rounded border border-slate-200">
+                      <div className="overflow-x-auto">
+                      <table className="w-full min-w-[860px] text-xs bg-white rounded border border-slate-200">
                         <thead>
                           <tr className="text-slate-500 border-b border-slate-200">
                             <th className="text-left font-medium p-2">Produto</th>
                             <th className="text-right font-medium p-2 w-20">Pedido</th>
                             <th className="text-right font-medium p-2 w-24">Já chegou</th>
                             <th className="text-right font-medium p-2 w-20">Falta</th>
-                            <th className="text-right font-medium p-2 w-32">Chegou agora</th>
+                            <th className="text-right font-medium p-2 w-28">Chegou agora</th>
+                            <th className="text-right font-medium p-2 w-24" title="Valor unitário na nota, sem IPI e ST">
+                              Vl. unit.
+                            </th>
+                            <th className="text-right font-medium p-2 w-20">IPI/un.</th>
+                            <th className="text-right font-medium p-2 w-20">ST/un.</th>
+                            <th className="text-right font-medium p-2 w-24">Total</th>
                           </tr>
                         </thead>
                         <tbody>
                           {pecas.map((g) => {
                             const aMais = lerChegou(g.produto_id) > g.falta
+                            const chegaAgora = Math.min(lerChegou(g.produto_id), g.falta)
+                            const vp = valoresPeca[g.produto_id] ?? { vu: '', ipi: '', st: '' }
+                            const v = valoresDe(g.produto_id)
+                            const mudarValor = (campo: keyof ValoresPeca, x: string) =>
+                              setValoresPeca((prev) => ({ ...prev, [g.produto_id]: { ...vp, [campo]: x } }))
+                            const esperando = entregas.filter((e) => e.produto_id === g.produto_id)
+                            const meus = vinculos[g.produto_id] ?? {}
+                            const vinculado = vinculadoDe(g.produto_id)
+                            const vincAMais = vinculado > chegaAgora + 0.0001
                             return (
-                              <tr key={g.produto_id} className="border-b border-slate-100 last:border-0">
+                              <Fragment key={g.produto_id}>
+                              <tr className="border-b-0">
                                 <td className="p-2 text-slate-700">
                                   {g.produto_codigo && (
                                     <span className="font-mono text-slate-400 mr-1.5">
@@ -717,11 +855,72 @@ export default function EntradaNotaFiscal() {
                                     </span>
                                   )}
                                 </td>
+                                {(['vu', 'ipi', 'st'] as const).map((campo) => (
+                                  <td key={campo} className="p-2 text-right">
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      className="h-8 w-20 ml-auto text-right text-sm"
+                                      value={vp[campo]}
+                                      disabled={pedidoFechado || g.falta <= 0}
+                                      onChange={(e) => mudarValor(campo, e.target.value)}
+                                    />
+                                  </td>
+                                ))}
+                                <td className="p-2 text-right tabular-nums font-medium">
+                                  {fmtBRL(r2(chegaAgora * (v.vu + v.ipi + v.st)))}
+                                </td>
                               </tr>
+                              {chegaAgora > 0 && (
+                                <tr className="border-b border-slate-100 last:border-0">
+                                  <td colSpan={9} className="px-2 pb-2 pt-0">
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded bg-slate-50 px-2 py-1 text-[11px]">
+                                      <span className="text-slate-500">Para quem:</span>
+                                      {Object.entries(meus).length === 0 ? (
+                                        <span className="text-slate-500">
+                                          {esperando.length === 0
+                                            ? 'nenhuma venda espera esta peça — entra livre no estoque'
+                                            : 'nenhum cliente vinculado — entra livre no estoque'}
+                                        </span>
+                                      ) : (
+                                        Object.entries(meus).map(([pi, q]) => {
+                                          const e = esperando.find((x) => x.projeto_item_id === pi)
+                                          return (
+                                            <span key={pi} className="rounded bg-white border border-slate-200 px-1.5 py-0.5">
+                                              {e?.venda_numero ?? e?.orcamento_numero ?? '—'} ·{' '}
+                                              {e?.cliente_nome ?? '—'} · <span className="font-mono">{e?.l_fixo ?? '—'}</span>:{' '}
+                                              <strong>{fmtQtd(lerQtd(q))}</strong>
+                                            </span>
+                                          )
+                                        })
+                                      )}
+                                      <span className={cn(vincAMais ? 'text-red-600 font-medium' : 'text-slate-500')}>
+                                        vinculado {fmtQtd(vinculado)} de {fmtQtd(chegaAgora)}
+                                        {!vincAMais && chegaAgora - vinculado > 0.0001
+                                          ? ` · ${fmtQtd(chegaAgora - vinculado)} livre(s)`
+                                          : ''}
+                                      </span>
+                                      {esperando.length > 0 && !pedidoFechado && (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-6 px-2 text-[11px]"
+                                          onClick={() => setPecaVinculo(g.produto_id)}
+                                        >
+                                          <Users className="w-3 h-3 mr-1" /> Escolher clientes ({esperando.length})
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              </Fragment>
                             )
                           })}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -906,18 +1105,98 @@ export default function EntradaNotaFiscal() {
                 />
               </div>
               {modo === 'pedido' && (
-                <div className="space-y-2">
-                  <Label>Valor do ST destacado na nota</Label>
-                  <Input
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={valorSt}
-                    onChange={(e) => {
-                      setValorSt(e.target.value)
-                      setStEditado(true)
-                    }}
-                  />
-                </div>
+                <>
+                  {/* SPEC-220: dados da nota (chave, datas) e o que entra no total além dos itens */}
+                  <div className="space-y-2">
+                    <Label>Chave de acesso (44 números, opcional)</Label>
+                    <Input
+                      inputMode="numeric"
+                      value={chaveAcesso}
+                      className={cn(!chaveOk && 'border-red-500')}
+                      onChange={(e) => setChaveAcesso(e.target.value)}
+                    />
+                    {!chaveOk && (
+                      <p className="text-[11px] text-red-600">
+                        A chave tem 44 números (digitados {chaveDigitos.length}).
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <Label>Data de entrega</Label>
+                      <Input type="date" value={dataEntrega} onChange={(e) => setDataEntrega(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Data de entrada</Label>
+                      <Input type="date" value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <Label>Desconto da nota (R$)</Label>
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={desconto}
+                        onChange={(e) => setDesconto(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label title="Frete e outras despesas que vêm na nota">Despesas acessórias (R$)</Label>
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={despesasAcessorias}
+                        onChange={(e) => setDespesasAcessorias(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2 rounded-lg border border-slate-200 p-3 text-xs">
+                    <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                      {[
+                        ['Produtos', r2(totaisItens.produtos)],
+                        ['IPI', r2(totaisItens.ipi)],
+                        ['ST', r2(totaisItens.st)],
+                        ['Desconto', -lerValor(desconto)],
+                        ['Desp. acessórias', lerValor(despesasAcessorias)],
+                        ['Total pelos itens', totalCalculado],
+                      ].map(([rot, val]) => (
+                        <div key={rot as string}>
+                          <p className="text-slate-500">{rot}</p>
+                          <p className="font-semibold tabular-nums">{fmtBRL(val as number)}</p>
+                        </div>
+                      ))}
+                      <div>
+                        <p className="text-slate-500">Diferença p/ a nota</p>
+                        <p className={cn('font-semibold tabular-nums', totalBate ? 'text-emerald-700' : 'text-red-600')}>
+                          {totalBate ? 'OK' : fmtBRL(r2(valorNota - totalCalculado))}
+                        </p>
+                      </div>
+                    </div>
+                    {!totalBate && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-red-700">
+                        O total dos itens não bate com o valor da nota: ajuste o valor unitário dos itens, o desconto ou
+                        as despesas acessórias.
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() => {
+                            setValor(totalCalculado.toFixed(2))
+                            setValorEditado(false)
+                          }}
+                        >
+                          Usar o total pelos itens
+                        </Button>
+                      </div>
+                    )}
+                    <p className="mt-2 text-slate-500">
+                      Apropriação: <strong>COMPRAS - REVENDA</strong> · entra no setor <strong>Estoque Geral</strong> ·
+                      "outras despesas" do pedido (ICMS recolhido depois) não entram na nota.
+                    </p>
+                  </div>
+                </>
               )}
               <div className="space-y-2">
                 <Label className="flex items-center gap-1">
@@ -967,7 +1246,7 @@ export default function EntradaNotaFiscal() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={salvando || !numeroNf.trim() || (modo === 'pedido' && !financeiroOk)}
+                  disabled={salvando || !numeroNf.trim() || (modo === 'pedido' && !entradaOk)}
                 >
                   {salvando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                   Registrar Entrada
@@ -1004,7 +1283,7 @@ export default function EntradaNotaFiscal() {
                 <TableHead className="text-xs">Emissão</TableHead>
                 <TableHead className="text-xs text-right">Valor</TableHead>
                 <TableHead className="text-xs text-center">Anexo</TableHead>
-                <TableHead className="text-xs text-center w-[110px]" />
+                <TableHead className="text-xs text-center w-[200px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1053,7 +1332,19 @@ export default function EntradaNotaFiscal() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-center whitespace-nowrap">
+                      {!nf.avulsa && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          title="Espelho da entrada: o que chegou e para quem foi (PDF para o Mateus)"
+                          onClick={() => setEspelhoNotaId(nf.id)}
+                        >
+                          <ScrollText className="w-3.5 h-3.5 mr-1" /> Espelho
+                        </Button>
+                      )}
                       {nf.cancelada_em ? (
                         <span
                           className="inline-block rounded bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600"
@@ -1096,7 +1387,7 @@ export default function EntradaNotaFiscal() {
             <AlertDialogDescription>
               {notaParaCancelar?.avulsa
                 ? 'As parcelas da nota saem do Contas a Pagar.'
-                : `Desfaz tudo que esta entrada fez: a quantidade recebida volta no pedido ${notaParaCancelar?.pedido_numero} (e o status dele), as parcelas da nota saem do Contas a Pagar e o pagamento antecipado usado volta a ter saldo.`}{' '}
+                : `Desfaz tudo que esta entrada fez: a quantidade recebida volta no pedido ${notaParaCancelar?.pedido_numero} (e o status dele), o que foi para a reserva dos clientes volta para a entrega futura, as parcelas da nota saem do Contas a Pagar e o pagamento antecipado usado volta a ter saldo.`}{' '}
               A nota continua na lista, marcada como cancelada. Se o fornecedor do pedido foi trocado nesta
               entrada, ele não volta sozinho.
             </AlertDialogDescription>
@@ -1123,6 +1414,26 @@ export default function EntradaNotaFiscal() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* SPEC-220: para quem vai o que chegou (entrega futura -> reserva) e espelho da entrada */}
+      {pecaVinculo && (
+        <VinculoClientesDialog
+          aberto={!!pecaVinculo}
+          onFechar={() => setPecaVinculo(null)}
+          produtoNome={pecas.find((g) => g.produto_id === pecaVinculo)?.produto_nome ?? ''}
+          chegou={(() => {
+            const g = pecas.find((x) => x.produto_id === pecaVinculo)
+            return g ? Math.min(lerChegou(g.produto_id), g.falta) : 0
+          })()}
+          entregas={entregas.filter((e) => e.produto_id === pecaVinculo)}
+          valores={vinculos[pecaVinculo] ?? {}}
+          onSalvar={(v) => {
+            setVinculos((prev) => ({ ...prev, [pecaVinculo]: v }))
+            setVinculosEditados((prev) => ({ ...prev, [pecaVinculo]: true }))
+          }}
+        />
+      )}
+      <EspelhoEntradaDialog notaId={espelhoNotaId} onFechar={() => setEspelhoNotaId(null)} />
     </div>
   )
 }

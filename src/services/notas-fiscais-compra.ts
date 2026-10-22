@@ -34,6 +34,12 @@ export interface PedidoParaEntrada {
     /** SPEC-215: base da sugestão de valor/ST da nota (por unidade). */
     custo_unitario: number
     valor_st: number
+    /** SPEC-220: valores da nota já preenchidos do pedido (por unidade, sem IPI/ST). */
+    custo_liquido: number | null
+    valor_ipi: number
+    valor_icms: number
+    /** SPEC-220: L de origem desta linha (sugestão de para quem vai o que chegou). */
+    origens: string[]
   }>
 }
 
@@ -51,7 +57,9 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
 
   const { data: itens } = await (supabase as any)
     .from('pedido_compra_itens')
-    .select('id, produto_id, quantidade, qtd_recebida, custo_unitario, valor_st, produtos(nome, codigo_produto)')
+    .select(
+      'id, produto_id, quantidade, qtd_recebida, custo_unitario, custo_liquido, valor_ipi, valor_icms, valor_st, produtos(nome, codigo_produto), pedido_compra_item_origem(projeto_item_id)',
+    )
     .eq('pedido_id', pedido.id)
     .order('criado_em', { ascending: true })
 
@@ -75,8 +83,85 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
       qtd_recebida: Number(i.qtd_recebida) || 0,
       custo_unitario: Number(i.custo_unitario) || 0,
       valor_st: Number(i.valor_st) || 0,
+      custo_liquido: i.custo_liquido != null ? Number(i.custo_liquido) : null,
+      valor_ipi: Number(i.valor_ipi) || 0,
+      valor_icms: Number(i.valor_icms) || 0,
+      origens: ((i.pedido_compra_item_origem ?? []) as any[]).map((o) => o.projeto_item_id).filter(Boolean),
     })),
   }
+}
+
+// SPEC-220: vendas/L que esperam cada peça (entrega futura) — destino do que chegou na entrada.
+export interface EntregaFutura {
+  projeto_item_id: string
+  produto_id: string
+  venda_numero: string | null
+  orcamento_numero: string | null
+  projeto_codigo: string | null
+  cliente_nome: string
+  l_fixo: string | null
+  empresa_nome: string | null
+  q_entrega_futura: number
+}
+
+export async function getEntregasFuturas(produtoIds: string[]): Promise<EntregaFutura[]> {
+  if (produtoIds.length === 0) return []
+  const { data, error } = await (supabase as any).rpc('entregas_futuras_para_entrada', {
+    p_produto_ids: produtoIds,
+  })
+  if (error) throw error
+  return ((data ?? []) as any[]).map((e) => ({ ...e, q_entrega_futura: Number(e.q_entrega_futura) || 0 }))
+}
+
+// SPEC-220: espelho da entrada (para o Mateus): nota, itens, para quem foi e financeiro.
+export interface EspelhoEntrada {
+  nota: {
+    id: string
+    numero_nf: string
+    chave_acesso: string | null
+    data_emissao: string | null
+    data_entrega: string | null
+    data_entrada: string | null
+    valor: number
+    valor_st: number | null
+    valor_desconto: number | null
+    valor_despesas_acessorias: number | null
+    observacao: string | null
+    cancelada_em: string | null
+    criado_em: string
+    pedido_numero: string | null
+    fornecedor_nome: string | null
+    fornecedor_documento: string | null
+    empresa_nome: string | null
+    apropriacao: string | null
+    lancado_por: string | null
+  }
+  itens: Array<{
+    produto_id: string
+    codigo: number | null
+    produto: string
+    quantidade: number
+    valor_unitario: number | null
+    valor_ipi: number | null
+    valor_st: number | null
+  }>
+  vinculos: Array<{
+    produto_id: string
+    quantidade: number
+    venda_numero: string | null
+    orcamento_numero: string | null
+    cliente_nome: string | null
+    l_fixo: string | null
+    projeto_codigo: string | null
+  }>
+  parcelas: Array<{ numero: number; vencimento: string; valor: number }>
+  antecipacao: number
+}
+
+export async function getEspelhoEntrada(notaId: string): Promise<EspelhoEntrada> {
+  const { data, error } = await (supabase as any).rpc('espelho_entrada_nota_compra', { p_nota_id: notaId })
+  if (error) throw error
+  return data as EspelhoEntrada
 }
 
 function soDigitos(v: string | null | undefined): string | null {
@@ -147,7 +232,15 @@ export async function getAntecipacoesParaEntrada(
 
 export interface RegistrarEntradaNotaInput {
   pedido_id: string
-  itens: Array<{ pedido_item_id: string; quantidade: number }>
+  /** SPEC-220: valores da nota por unidade (sem IPI/ST no valor_unitario). */
+  itens: Array<{
+    pedido_item_id: string
+    quantidade: number
+    valor_unitario?: number
+    valor_ipi?: number
+    valor_icms?: number
+    valor_st?: number
+  }>
   numero_nf: string
   data_emissao: string | null
   valor: number
@@ -158,12 +251,25 @@ export interface RegistrarEntradaNotaInput {
   antecipacoes: Array<{ pagamento_id: string; valor: number }>
   /** Fornecedor da nota quando é outro: o pedido passa a ser dele. */
   fornecedor_id: string | null
+  // SPEC-220
+  chave_acesso: string | null
+  data_entrega: string | null
+  data_entrada: string | null
+  valor_desconto: number | null
+  valor_despesas_acessorias: number | null
+  /** O que chegou de cada peça vai da entrega futura para a reserva destes L. */
+  vinculos: Array<{ produto_id: string; projeto_item_id: string; quantidade: number }>
 }
 
-// SPEC-215: quantidades + nota + parcelas + antecipação numa transação só (RPC registrar_entrada_nota_compra).
-export async function registrarEntradaNotaCompra(
-  input: RegistrarEntradaNotaInput,
-): Promise<{ status: string; parcelas: number; antecipacao_aplicada: number; fornecedor_trocado: boolean }> {
+// SPEC-215/220: quantidades + nota + parcelas + antecipação + vínculo com o cliente numa transação só.
+export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInput): Promise<{
+  status: string
+  nota_id: string
+  parcelas: number
+  antecipacao_aplicada: number
+  fornecedor_trocado: boolean
+  reservado: number
+}> {
   const arquivoUrl = input.arquivo
     ? await uploadArquivoNotaFiscalCompra(input.arquivo, input.pedido_id)
     : null
@@ -177,10 +283,16 @@ export async function registrarEntradaNotaCompra(
       valor_st: input.valor_st,
       arquivo_url: arquivoUrl,
       observacao: input.observacao?.trim() || null,
+      chave_acesso: input.chave_acesso,
+      data_entrega: input.data_entrega,
+      data_entrada: input.data_entrada,
+      valor_desconto: input.valor_desconto,
+      valor_despesas_acessorias: input.valor_despesas_acessorias,
     },
     p_parcelas: input.parcelas,
     p_antecipacoes: input.antecipacoes,
     p_fornecedor_id: input.fornecedor_id,
+    p_vinculos: input.vinculos,
   })
   if (error) throw error
   return data
@@ -301,7 +413,13 @@ export async function getNotasFiscaisCompra(searchTerm?: string): Promise<NotaFi
 export async function cancelarEntradaNotaCompra(
   notaId: string,
   motivo: string,
-): Promise<{ pedido_numero: string | null; pedido_status: string | null; antecipacao_devolvida: number }> {
+): Promise<{
+  pedido_numero: string | null
+  pedido_status: string | null
+  antecipacao_devolvida: number
+  /** SPEC-220: quanto voltou da reserva para a entrega futura. */
+  reserva_desfeita?: number
+}> {
   const { data, error } = await (supabase as any).rpc('cancelar_entrada_nota_compra', {
     p_nota_id: notaId,
     p_motivo: motivo.trim(),
