@@ -155,6 +155,8 @@ export default function EntradaNotaFiscal() {
   const [observacao, setObservacao] = useState('')
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // SPEC-231 B2: aviso antes de registrar com peça que chegou sem vínculo e cliente esperando
+  const [avisoSemVinculo, setAvisoSemVinculo] = useState(false)
 
   // SPEC-215: fornecedor da nota (quando veio em nome de outro: o pedido passa a ser dele), ST, parcelas
   // editáveis e pagamento antecipado vinculado.
@@ -533,10 +535,31 @@ export default function EntradaNotaFiscal() {
   // SPEC-220: só registra com vínculos dentro do limite e chave válida (SPEC-222: o total é o dos itens)
   const entradaOk = financeiroOk && vinculosOk && chaveOk && lerValor(desconto) >= 0
 
+  // SPEC-231 B2 (reunião 26/10): no teste a nota foi salva sem vincular e o que chegou ficou no estoque livre
+  // em vez de ir para o cliente que esperava. Não trava — só avisa e pede confirmação.
+  const semVinculo = pecas
+    .map((g) => {
+      const chegaAgora = Math.min(lerChegou(g.produto_id), g.falta)
+      const esperando = entregas.filter((e) => e.produto_id === g.produto_id && e.q_entrega_futura > 0)
+      const aguardam = esperando.reduce((s, e) => s + e.q_entrega_futura, 0)
+      const sobra = Math.min(chegaAgora, aguardam) - vinculadoDe(g.produto_id)
+      return { g, sobra, esperando }
+    })
+    .filter((x) => x.sobra > 0.0001)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!podeRegistrar || !numeroNf.trim()) return
     if (modo === 'pedido' && !entradaOk) return
+    if (modo === 'pedido' && semVinculo.length > 0) {
+      setAvisoSemVinculo(true)
+      return
+    }
+    await registrar()
+  }
+
+  async function registrar() {
+    setAvisoSemVinculo(false)
     setSalvando(true)
     try {
       // SPEC-215: com pedido, quantidades + nota + parcelas + antecipação vão juntos numa RPC só
@@ -1388,6 +1411,45 @@ export default function EntradaNotaFiscal() {
       </AlertDialog>
 
       {/* SPEC-220: para quem vai o que chegou (entrega futura -> reserva) e espelho da entrada */}
+      <AlertDialog open={avisoSemVinculo} onOpenChange={setAvisoSemVinculo}>
+        <AlertDialogContent className="max-w-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Peça chegou sem vínculo com cliente</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-slate-600">
+                <p>
+                  Tem cliente esperando estas peças (entrega futura), mas parte do que chegou não foi
+                  vinculada. Sem vínculo, a peça fica no Estoque Geral livre e o cliente continua esperando.
+                </p>
+                <ul className="space-y-2">
+                  {semVinculo.map(({ g, sobra, esperando }) => (
+                    <li key={g.produto_id} className="rounded-md border border-amber-200 bg-amber-50 p-2">
+                      <div className="font-semibold text-slate-800">
+                        {g.produto_codigo ? `${g.produto_codigo} — ` : ''}
+                        {g.produto_nome}: {fmtQtd(sobra)} sem vínculo
+                      </div>
+                      <div className="text-xs">
+                        Esperando:{' '}
+                        {esperando
+                          .map(
+                            (e) =>
+                              `${e.cliente_nome} (${e.venda_numero || e.orcamento_numero || '-'}${e.l_fixo ? ' ' + e.l_fixo : ''}: ${fmtQtd(e.q_entrega_futura)})`,
+                          )
+                          .join('; ')}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar e vincular</AlertDialogCancel>
+            <AlertDialogAction onClick={() => registrar()}>Registrar mesmo assim</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {pecaVinculo && (
         <VinculoClientesDialog
           aberto={!!pecaVinculo}

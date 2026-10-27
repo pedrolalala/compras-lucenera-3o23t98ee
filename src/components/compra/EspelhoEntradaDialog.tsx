@@ -55,7 +55,7 @@ export function EspelhoEntradaDialog({ notaId, onFechar }: { notaId: string | nu
   const n = espelho?.nota
   return (
     <Dialog open={!!notaId} onOpenChange={(o) => !o && onFechar()}>
-      <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Espelho da entrada {n ? `— NF ${n.numero_nf}` : ''}</DialogTitle>
           <DialogDescription>
@@ -72,10 +72,12 @@ export function EspelhoEntradaDialog({ notaId, onFechar }: { notaId: string | nu
           <div className="space-y-4 text-sm">
             <table className="w-full">
               <thead>
+                {/* SPEC-231 B3 (reunião 26/10): quantidade que chegou na linha da peça e nome mais largo */}
                 <tr className="text-xs text-slate-500 border-b">
-                  <th className="text-left font-medium py-1">Peça</th>
+                  <th className="text-left font-medium py-1 w-[48%]">Peça</th>
+                  <th className="text-right font-medium py-1 pr-4 w-16">Chegou</th>
                   <th className="text-left font-medium py-1">Para quem</th>
-                  <th className="text-right font-medium py-1">Qtd.</th>
+                  <th className="text-right font-medium py-1 w-12">Qtd.</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,8 +89,8 @@ export function EspelhoEntradaDialog({ notaId, onFechar }: { notaId: string | nu
                       <td className="py-1.5 pr-2">
                         <span className="font-mono text-slate-400 mr-1">{it.codigo}</span>
                         {it.produto}
-                        <span className="block text-xs text-slate-500">chegaram {qtd(it.quantidade)}</span>
                       </td>
+                      <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{qtd(it.quantidade)}</td>
                       <td className="py-1.5" colSpan={2}>
                         {vinc.map((v, i) => (
                           <div key={i} className="flex justify-between gap-2">
