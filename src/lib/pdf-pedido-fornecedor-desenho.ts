@@ -1,6 +1,7 @@
 // SPEC-211: desenho do PDF do pedido de compra para o fornecedor (sem nada do navegador, para
 // poder ser testado fora dele). Os dados vêm de pdf-pedido-fornecedor.ts.
 import type { PDFDocument as TPDFDocument } from 'pdf-lib'
+import { linhasEndereco, type EntregaResolvida } from '@/lib/entrega-pedido'
 
 export interface DadosPedidoPdf {
   pedido: any
@@ -9,6 +10,8 @@ export interface DadosPedidoPdf {
   comprador: string | null
   itens: any[]
   parcelas: { numero_parcela: number; data_vencimento: string | null; valor: number }[]
+  /** SPEC-236: endereço de entrega já resolvido (fornecedor próprio ou padrão do estoque) */
+  entrega?: EntregaResolvida | null
 }
 
 const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -25,7 +28,7 @@ export async function gerarPdfPedidoFornecedor(
   logo: string | null,
 ): Promise<Uint8Array> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
-  const { pedido, empresa, fornecedor, comprador, itens, parcelas } = dados
+  const { pedido, empresa, fornecedor, comprador, itens, parcelas, entrega } = dados
   const pdf: TPDFDocument = await PDFDocument.create()
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
@@ -164,14 +167,21 @@ export async function gerarPdfPedidoFornecedor(
   page.drawText(caber(comprador || 'Compras', bold, 9, 160), { x: 40, y: y - 12, size: 9, font: bold })
   page.drawText('Previsão de entrega', { x: 220, y, size: 9, font })
   page.drawText(dia(pedido.data_prevista_entrega), { x: 220, y: y - 12, size: 9, font: bold })
-  page.drawText('Local de entrega', { x: 340, y, size: 9, font })
-  page.drawText(caber(pedido.local_entrega || '-', bold, 9, width - 40 - 340), {
-    x: 340,
-    y: y - 12,
-    size: 9,
-    font: bold,
-  })
-  y -= 30
+  // SPEC-236: endereço de entrega automático (fornecedor com endereço próprio → ele; senão → estoque).
+  // O "local de entrega" digitado no pedido, quando existe, aparece embaixo como observação.
+  page.drawText('Endereço de entrega', { x: 340, y, size: 9, font })
+  const larguraEntrega = width - 40 - 340
+  const linhasEntrega: { t: string; f: typeof font }[] = []
+  if (entrega) {
+    if (entrega.nome) linhasEntrega.push({ t: entrega.nome, f: bold })
+    for (const l of linhasEndereco(entrega.endereco)) linhasEntrega.push({ t: l, f: entrega.nome ? font : bold })
+  }
+  if (pedido.local_entrega) linhasEntrega.push({ t: `Obs.: ${pedido.local_entrega}`, f: font })
+  if (linhasEntrega.length === 0) linhasEntrega.push({ t: '-', f: bold })
+  linhasEntrega.forEach(({ t, f }, i) =>
+    page.drawText(caber(t, f, 8, larguraEntrega), { x: 340, y: y - 12 - 10 * i, size: 8, font: f }),
+  )
+  y -= Math.max(30, 12 + 10 * linhasEntrega.length + 8)
 
   // ---------- Itens ----------
   // x de cada coluna; números alinhados à direita no fim da coluna

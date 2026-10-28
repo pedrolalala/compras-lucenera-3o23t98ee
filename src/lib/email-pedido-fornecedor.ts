@@ -7,7 +7,13 @@ export function assuntoPadrao(numero: string, empresaNome: string | null) {
   return `Pedido de Compra nº ${numero}${empresaNome ? ` - ${empresaNome}` : ''}`
 }
 
-export function textoPadrao(numero: string, empresaNome: string | null, remetente: string | null) {
+export function textoPadrao(
+  numero: string,
+  empresaNome: string | null,
+  remetente: string | null,
+  // SPEC-236: WhatsApp do Compras vem de compras_config
+  whatsappCompras?: string | null,
+) {
   return [
     'Prezados,',
     '',
@@ -15,6 +21,9 @@ export function textoPadrao(numero: string, empresaNome: string | null, remetent
     '',
     'Por favor, confirmem o recebimento deste pedido e o prazo de entrega.',
     'Pedimos que o número do pedido seja mencionado na nota fiscal.',
+    ...(whatsappCompras
+      ? ['', `Qualquer dúvida, fale com o setor de Compras pelo WhatsApp: ${whatsappCompras}`]
+      : []),
     '',
     'Atenciosamente,',
     ...(remetente ? [remetente] : []),

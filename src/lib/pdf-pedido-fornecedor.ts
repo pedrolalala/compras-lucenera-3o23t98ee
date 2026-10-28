@@ -5,6 +5,7 @@
 import { supabase } from '@/lib/supabase/client'
 import logoImg from '@/assets/lucenera-vertical-d5520.png'
 import { gerarPdfPedidoFornecedor, type DadosPedidoPdf } from '@/lib/pdf-pedido-fornecedor-desenho'
+import { entregaDoContato, getComprasConfig, resolverEntrega } from '@/services/compras-config'
 
 
 async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
@@ -15,7 +16,7 @@ async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
     .single()
   if (error) throw error
 
-  const [empresa, fornecedor, comprador, itens, parcelas] = await Promise.all([
+  const [empresa, fornecedor, comprador, itens, parcelas, config] = await Promise.all([
     pedido.empresa_id
       ? (supabase as any)
           .from('empresas')
@@ -26,7 +27,9 @@ async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
       : Promise.resolve(null),
     (supabase as any)
       .from('contatos')
-      .select('nome, razao_social, cpf_cnpj, cnpj, endereco, numero, bairro, cep, cidade, estado, telefone, email')
+      .select(
+        'nome, razao_social, cpf_cnpj, cnpj, endereco, numero, bairro, cep, cidade, estado, telefone, email, endereco_entrega, numero_entrega, complemento_entrega, bairro_entrega, cidade_entrega, estado_entrega, cep_entrega',
+      )
       .eq('id', pedido.fornecedor_id)
       .maybeSingle()
       .then((r: any) => r.data),
@@ -57,9 +60,13 @@ async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
       .neq('status', 'cancelado')
       .order('numero_parcela', { ascending: true })
       .then((r: any) => r.data ?? []),
+    // SPEC-236: sem a configuração o PDF sai do mesmo jeito, só sem o endereço padrão
+    getComprasConfig().catch(() => null),
   ])
 
-  return { pedido, empresa, fornecedor, comprador, itens, parcelas }
+  // SPEC-236: endereço próprio do fornecedor (ex.: Manoella/Islight → showroom) ou o padrão do estoque
+  const entrega = resolverEntrega(entregaDoContato(fornecedor), config)
+  return { pedido, empresa, fornecedor, comprador, itens, parcelas, entrega }
 }
 
 // O PNG da logo tem ~17-22% de margem transparente; recorte medido no arquivo de 1920x1512
