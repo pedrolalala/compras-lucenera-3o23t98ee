@@ -37,6 +37,10 @@ import {
   getPrazoMedioFornecedor,
   getProdutoImpostosBulk,
   upsertObservacaoProdutoFornecedor,
+  getItensPorCaixa,
+  podeEditarCaixaFechada,
+  salvarItensPorCaixa,
+  arredondarParaCaixa,
   vincularOrigemPedidoItem,
   type Empresa,
 } from '@/services/pedido-compra'
@@ -66,6 +70,8 @@ const NO_SPINNER =
 //     quantidade na ordem do carrinho (mapeado por ÍNDICE: criar_pedido_compra_lote preserva a ordem);
 //   - pode comprar a mais (caixa fechada, desconto do fornecedor): o que passa da soma dos L fica sem vínculo;
 //     comprar a menos atende os primeiros L e o resto continua na necessidade.
+// SPEC-240: peça com "Itens por caixa" já abre arredondada para cima até fechar a caixa (38, caixa 10 → 40);
+//   o que passa das vendas segue o caminho acima (fica para estoque). Digitar fora da caixa só avisa.
 
 interface Props {
   open: boolean
@@ -91,7 +97,8 @@ interface LinhaItem {
   ipiPerc: string
   outrasPerc: string
   observacaoFornecedor: string | null
-  qtdMinima: number | null
+  /** SPEC-240: produtos.multiplo_compra (1 = sem regra). */
+  itensPorCaixa: number
   // SPEC-212: "Tirar" — peça selecionada a mais não entra no pedido (igual ao Editar pedido)
   remover: boolean
 }
@@ -120,6 +127,7 @@ export function ModalGerarCompraItemOrcamento({
   const [localEntrega, setLocalEntrega] = useState('')
   const [prazoMedio, setPrazoMedio] = useState<{ dias: number; pedidos: number } | null>(null)
   const [salvandoObs, setSalvandoObs] = useState<string | null>(null)
+  const [podeEditarCaixa, setPodeEditarCaixa] = useState(false)
 
   // SPEC-209 A4: já vem com a empresa da venda quando todas as linhas são da mesma empresa.
   const empresaDasVendas = useMemo(() => {
@@ -145,7 +153,7 @@ export function ModalGerarCompraItemOrcamento({
         ipiPerc: '',
         outrasPerc: '',
         observacaoFornecedor: null,
-        qtdMinima: null,
+        itensPorCaixa: 1,
         remover: false,
       })),
     )
@@ -164,6 +172,26 @@ export function ModalGerarCompraItemOrcamento({
     getPrazoMedioFornecedor(fornecedorId)
       .then(setPrazoMedio)
       .catch(() => setPrazoMedio(null))
+    podeEditarCaixaFechada()
+      .then(setPodeEditarCaixa)
+      .catch(() => setPodeEditarCaixa(false))
+
+    // SPEC-240: arredonda a quantidade inicial para a caixa fechada da peça.
+    getItensPorCaixa(Array.from(new Set(itens.map((it) => it.produto_id))))
+      .then((caixas) => {
+        if (caixas.size === 0) return
+        setLinhas((prev) =>
+          prev.map((l) => {
+            const caixa = caixas.get(l.produto_id)
+            if (!caixa) return l
+            const qtd = parseFloat(l.quantidade) || 0
+            return { ...l, itensPorCaixa: caixa, quantidade: String(arredondarParaCaixa(qtd, caixa)) }
+          }),
+        )
+      })
+      .catch(() => {
+        // silencioso — sem a caixa a tela funciona como antes.
+      })
 
     getProdutoImpostosBulk(
       Array.from(new Set(itens.map((it) => it.produto_id))),
@@ -182,7 +210,6 @@ export function ModalGerarCompraItemOrcamento({
               ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
               outrasPerc: percentualParaCampo(dados.despesasPerc),
               observacaoFornecedor: dados.observacaoFornecedor,
-              qtdMinima: dados.qtdMinima,
             }
           }),
         )
@@ -204,19 +231,30 @@ export function ModalGerarCompraItemOrcamento({
     setLinhas((prev) => prev.map((l) => (l.chave === chave ? { ...l, [campo]: valor } : l)))
   }
 
-  async function salvarObservacao(produtoId: string, obs: string, qtdMinima: string) {
+  async function salvarObservacao(produtoId: string, obs: string, itensPorCaixa: string) {
+    const linha = linhas.find((l) => l.produto_id === produtoId)
+    if (!linha) return
     setSalvandoObs(produtoId)
     try {
-      const qtdMinimaNum = qtdMinima.trim() ? parseFloat(qtdMinima) : null
-      await upsertObservacaoProdutoFornecedor(produtoId, fornecedorId, obs.trim() || null, qtdMinimaNum)
+      const novaObs = obs.trim() || null
+      const novaCaixa = Math.max(1, parseInt(itensPorCaixa.trim() || '1', 10) || 1)
+      const mudouCaixa = podeEditarCaixa && novaCaixa !== linha.itensPorCaixa
+      // só grava a observação se mudou (não apaga a marca da SPEC-237, que fica escondida)
+      if (novaObs !== linha.observacaoFornecedor) {
+        await upsertObservacaoProdutoFornecedor(produtoId, fornecedorId, novaObs)
+      }
+      if (mudouCaixa) await salvarItensPorCaixa(produtoId, novaCaixa)
       setLinhas((prev) =>
-        prev.map((l) =>
-          l.produto_id === produtoId
-            ? { ...l, observacaoFornecedor: obs.trim() || null, qtdMinima: qtdMinimaNum }
-            : l,
-        ),
+        prev.map((l) => {
+          if (l.produto_id !== produtoId) return l
+          const atualizada = { ...l, observacaoFornecedor: novaObs }
+          if (!mudouCaixa) return atualizada
+          // recalcula a linha na hora: necessidade das vendas (ou a quantidade digitada, no avulso)
+          const base = l.qtdVendas > 0 ? l.qtdVendas : parseFloat(l.quantidade) || 0
+          return { ...atualizada, itensPorCaixa: novaCaixa, quantidade: String(arredondarParaCaixa(base, novaCaixa)) }
+        }),
       )
-      toast({ title: 'Observação salva' })
+      toast({ title: mudouCaixa ? 'Itens por caixa salvo — vale para as próximas compras' : 'Observação salva' })
     } catch (err: any) {
       toast({
         title: 'Erro ao salvar observação',
@@ -410,7 +448,8 @@ export function ModalGerarCompraItemOrcamento({
                       <div>
                         <ObservacaoCaixaFechada
                           observacao={l.observacaoFornecedor}
-                          qtdMinima={l.qtdMinima}
+                          itensPorCaixa={l.itensPorCaixa}
+                          podeEditarCaixa={podeEditarCaixa}
                           salvando={salvandoObs === l.produto_id}
                           onSalvar={(obs, qtd) => salvarObservacao(l.produto_id, obs, qtd)}
                         />
@@ -428,7 +467,8 @@ export function ModalGerarCompraItemOrcamento({
                           {l.origens.length} L · {l.qtdVendas} p/ vendas
                           {l.qtd > l.qtdVendas + 0.0001 && (
                             <span className="block text-[11px] text-emerald-700">
-                              +{Math.round((l.qtd - l.qtdVendas) * 1000) / 1000} a mais (estoque)
+                              +{Math.round((l.qtd - l.qtdVendas) * 1000) / 1000} a mais
+                              {l.itensPorCaixa > 1 ? ' (caixa fechada, estoque)' : ' (estoque)'}
                             </span>
                           )}
                           {l.qtd < l.qtdVendas - 0.0001 && l.qtd > 0 && (
@@ -449,6 +489,15 @@ export function ModalGerarCompraItemOrcamento({
                         disabled={l.remover}
                         onChange={(e) => atualizarLinha(l.chave, 'quantidade', e.target.value)}
                       />
+                      {/* SPEC-240: fora da caixa só avisa (às vezes o fornecedor vende avulso) */}
+                      {!l.remover &&
+                        l.itensPorCaixa > 1 &&
+                        l.qtd > 0 &&
+                        Math.abs(l.qtd / l.itensPorCaixa - Math.round(l.qtd / l.itensPorCaixa)) > 1e-9 && (
+                          <span className="block text-[11px] text-amber-700 mt-1">
+                            Não fecha caixa de {l.itensPorCaixa}
+                          </span>
+                        )}
                     </TableCell>
                     <TableCell className="text-right align-top">
                       <Input

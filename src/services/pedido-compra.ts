@@ -186,6 +186,13 @@ export interface ProdutoImpostos {
   qtdMinima: number | null
 }
 
+// SPEC-240 B: a carga da SPEC-237 marcou os vínculos com "SPEC-237: ..." na observação (marca do rollback da
+// 257, o usuário pediu para não apagar). Não é observação para o usuário: não aparece na tela.
+function observacaoVisivel(observacao: string | null | undefined): string | null {
+  if (!observacao || observacao.startsWith('SPEC-237:')) return null
+  return observacao
+}
+
 // SPEC-209 B3: R$ 100 com 25% de desconto vira R$ 75 (máscara do cadastro).
 function custoComDesconto(preco: number | null | undefined, descontoPerc: number | null | undefined) {
   if (preco == null) return null
@@ -225,7 +232,7 @@ export async function getProdutoImpostos(
       .eq('ativo', true)
       .maybeSingle()
     custoOverride = pf?.custo_unitario ?? null
-    observacaoFornecedor = pf?.observacao ?? null
+    observacaoFornecedor = observacaoVisivel(pf?.observacao)
     qtdMinima = pf?.qtd_minima ?? null
   }
 
@@ -272,7 +279,8 @@ export async function getProdutoImpostosBulk(
       .in('produto_id', produtoIds)
     ;(pfs ?? []).forEach((pf: any) => {
       if (pf.custo_unitario != null) overrides.set(pf.produto_id, pf.custo_unitario)
-      if (pf.observacao) observacoes.set(pf.produto_id, pf.observacao)
+      const obs = observacaoVisivel(pf.observacao)
+      if (obs) observacoes.set(pf.produto_id, obs)
       if (pf.qtd_minima != null) qtdsMinimas.set(pf.produto_id, pf.qtd_minima)
     })
   }
@@ -294,16 +302,14 @@ export async function getProdutoImpostosBulk(
 }
 
 /**
- * SPEC-066 Frente C: upsert de observação/qtd_minima ("caixa fechada")
- * para o par produto+fornecedor. Chamado a partir do Fechar Pedido em
- * Lote (único lugar onde essa informação é editável, por decisão da
- * Débora). Não mexe em custo_unitario (mantém o que já existir).
+ * SPEC-066 Frente C: upsert da observação do par produto+fornecedor. Chamado a partir do Fechar
+ * Pedido. Não mexe em custo_unitario (mantém o que já existir). SPEC-240: a caixa fechada saiu
+ * daqui (qtd_minima) e foi para a peça (produtos.multiplo_compra).
  */
 export async function upsertObservacaoProdutoFornecedor(
   produtoId: string,
   fornecedorId: string,
   observacao: string | null,
-  qtdMinima: number | null,
 ): Promise<void> {
   const { data: existing } = await (supabase as any)
     .from('produto_fornecedores')
@@ -315,7 +321,7 @@ export async function upsertObservacaoProdutoFornecedor(
   if (existing) {
     const { error } = await (supabase as any)
       .from('produto_fornecedores')
-      .update({ observacao, qtd_minima: qtdMinima })
+      .update({ observacao })
       .eq('id', existing.id)
     if (error) throw error
   } else {
@@ -323,11 +329,51 @@ export async function upsertObservacaoProdutoFornecedor(
       produto_id: produtoId,
       fornecedor_id: fornecedorId,
       observacao,
-      qtd_minima: qtdMinima,
       ativo: true,
     })
     if (error) throw error
   }
+}
+
+// -----------------------------------------------------------------------
+// SPEC-240 — Itens por caixa (caixa fechada) = produtos.multiplo_compra
+// -----------------------------------------------------------------------
+
+/** Itens por caixa de cada peça (só as que têm regra, > 1). */
+export async function getItensPorCaixa(produtoIds: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  if (produtoIds.length === 0) return result
+  const { data, error } = await (supabase as any)
+    .from('produtos')
+    .select('id, multiplo_compra')
+    .in('id', produtoIds)
+  if (error) throw error
+  ;(data ?? []).forEach((p: any) => {
+    if (p.multiplo_compra != null && p.multiplo_compra > 1) result.set(p.id, p.multiplo_compra)
+  })
+  return result
+}
+
+/** Só a Débora e a administração alteram (migration 260 trava no banco também). */
+export async function podeEditarCaixaFechada(): Promise<boolean> {
+  const { data, error } = await (supabase as any).rpc('pode_editar_caixa_fechada')
+  if (error) return false
+  return data === true
+}
+
+/** Grava a regra na peça; vazio/1 = sem regra. */
+export async function salvarItensPorCaixa(produtoId: string, itensPorCaixa: number | null): Promise<void> {
+  const { error } = await (supabase as any)
+    .from('produtos')
+    .update({ multiplo_compra: itensPorCaixa && itensPorCaixa > 1 ? itensPorCaixa : 1 })
+    .eq('id', produtoId)
+  if (error) throw error
+}
+
+/** Menor múltiplo da caixa que cobre a quantidade (38 com caixa 10 → 40). */
+export function arredondarParaCaixa(qtd: number, itensPorCaixa: number): number {
+  if (!(itensPorCaixa > 1) || !(qtd > 0)) return qtd
+  return Math.ceil(qtd / itensPorCaixa - 1e-9) * itensPorCaixa
 }
 
 // -----------------------------------------------------------------------
