@@ -41,6 +41,7 @@ import {
   podeEditarCaixaFechada,
   salvarItensPorCaixa,
   arredondarParaCaixa,
+  fechaCaixa,
   vincularOrigemPedidoItem,
   type Empresa,
 } from '@/services/pedido-compra'
@@ -73,6 +74,20 @@ const NO_SPINNER =
 // SPEC-240: peça com "Itens por caixa" já abre arredondada para cima até fechar a caixa (38, caixa 10 → 40);
 //   o que passa das vendas segue o caminho acima (fica para estoque). Digitar fora da caixa só avisa.
 
+// SPEC-240 C: com desconto de caixa fechada, o preço de custo vem com o desconto enquanto a quantidade fecha
+// caixa e volta ao preço cheio quando não fecha. Preço digitado à mão não é mexido.
+function aplicarDescontoCaixa<
+  T extends { custoBase: string; custoLiquido: string; custoManual: boolean; descontoCaixa: number; itensPorCaixa: number; quantidade: string },
+>(l: T): T {
+  if (l.custoManual || !(l.descontoCaixa > 0)) return l
+  const base = parseFloat(l.custoBase)
+  if (!(base > 0)) return l
+  const custo = fechaCaixa(parseFloat(l.quantidade) || 0, l.itensPorCaixa)
+    ? Math.round(base * (1 - l.descontoCaixa / 100) * 10000) / 10000
+    : base
+  return { ...l, custoLiquido: String(custo) }
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -93,6 +108,10 @@ interface LinhaItem {
   quantidade: string
   // SPEC-209 B: preço de custo (já com desconto) + ST/IPI/outras despesas em % (sem ICMS)
   custoLiquido: string
+  /** SPEC-240 C: preço de custo sem o desconto da caixa fechada; custoManual = digitado à mão. */
+  custoBase: string
+  custoManual: boolean
+  descontoCaixa: number
   stPerc: string
   ipiPerc: string
   outrasPerc: string
@@ -149,6 +168,9 @@ export function ModalGerarCompraItemOrcamento({
         qtdVendas: lista.filter((l) => l.projeto_item_id).reduce((s, l) => s + l.pendente_item, 0),
         quantidade: String(Math.round(lista.reduce((s, l) => s + l.pendente_item, 0) * 1000) / 1000),
         custoLiquido: lista[0].preco_custo != null ? String(lista[0].preco_custo) : '',
+        custoBase: lista[0].preco_custo != null ? String(lista[0].preco_custo) : '',
+        custoManual: false,
+        descontoCaixa: 0,
         stPerc: '',
         ipiPerc: '',
         outrasPerc: '',
@@ -185,7 +207,11 @@ export function ModalGerarCompraItemOrcamento({
             const caixa = caixas.get(l.produto_id)
             if (!caixa) return l
             const qtd = parseFloat(l.quantidade) || 0
-            return { ...l, itensPorCaixa: caixa, quantidade: String(arredondarParaCaixa(qtd, caixa)) }
+            return aplicarDescontoCaixa({
+              ...l,
+              itensPorCaixa: caixa,
+              quantidade: String(arredondarParaCaixa(qtd, caixa)),
+            })
           }),
         )
       })
@@ -203,14 +229,17 @@ export function ModalGerarCompraItemOrcamento({
             const dados = impostos.get(l.produto_id)
             if (!dados) return l
             const custoLiquido = dados.custoUnitario ?? (parseFloat(l.custoLiquido) || 0)
-            return {
+            const custo = custoLiquido > 0 ? String(custoLiquido) : l.custoLiquido
+            return aplicarDescontoCaixa({
               ...l,
-              custoLiquido: custoLiquido > 0 ? String(custoLiquido) : l.custoLiquido,
+              custoLiquido: custo,
+              custoBase: custo,
+              descontoCaixa: dados.descontoCaixaPerc,
               stPerc: percentualParaCampo(dados.porcStPerc),
               ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
               outrasPerc: percentualParaCampo(dados.despesasPerc),
               observacaoFornecedor: dados.observacaoFornecedor,
-            }
+            })
           }),
         )
       })
@@ -228,22 +257,32 @@ export function ModalGerarCompraItemOrcamento({
     campo: 'quantidade' | 'custoLiquido' | 'stPerc' | 'ipiPerc' | 'outrasPerc',
     valor: string,
   ) {
-    setLinhas((prev) => prev.map((l) => (l.chave === chave ? { ...l, [campo]: valor } : l)))
+    setLinhas((prev) =>
+      prev.map((l) => {
+        if (l.chave !== chave) return l
+        // SPEC-240 C: preço digitado à mão vale; mudar a quantidade reaplica o desconto da caixa
+        if (campo === 'custoLiquido') return { ...l, custoLiquido: valor, custoManual: true }
+        if (campo === 'quantidade') return aplicarDescontoCaixa({ ...l, quantidade: valor })
+        return { ...l, [campo]: valor }
+      }),
+    )
   }
 
-  async function salvarObservacao(produtoId: string, obs: string, itensPorCaixa: string) {
+  async function salvarObservacao(produtoId: string, obs: string, itensPorCaixa: string, descontoCaixa: string) {
     const linha = linhas.find((l) => l.produto_id === produtoId)
     if (!linha) return
     setSalvandoObs(produtoId)
     try {
       const novaObs = obs.trim() || null
       const novaCaixa = Math.max(1, parseInt(itensPorCaixa.trim() || '1', 10) || 1)
-      const mudouCaixa = podeEditarCaixa && novaCaixa !== linha.itensPorCaixa
+      const novoDesconto = Math.max(0, parseFloat(descontoCaixa.trim().replace(',', '.') || '0') || 0)
+      const mudouCaixa =
+        podeEditarCaixa && (novaCaixa !== linha.itensPorCaixa || novoDesconto !== linha.descontoCaixa)
       // só grava a observação se mudou (não apaga a marca da SPEC-237, que fica escondida)
       if (novaObs !== linha.observacaoFornecedor) {
         await upsertObservacaoProdutoFornecedor(produtoId, fornecedorId, novaObs)
       }
-      if (mudouCaixa) await salvarItensPorCaixa(produtoId, novaCaixa)
+      if (mudouCaixa) await salvarItensPorCaixa(produtoId, novaCaixa, novoDesconto)
       setLinhas((prev) =>
         prev.map((l) => {
           if (l.produto_id !== produtoId) return l
@@ -251,10 +290,15 @@ export function ModalGerarCompraItemOrcamento({
           if (!mudouCaixa) return atualizada
           // recalcula a linha na hora: necessidade das vendas (ou a quantidade digitada, no avulso)
           const base = l.qtdVendas > 0 ? l.qtdVendas : parseFloat(l.quantidade) || 0
-          return { ...atualizada, itensPorCaixa: novaCaixa, quantidade: String(arredondarParaCaixa(base, novaCaixa)) }
+          return aplicarDescontoCaixa({
+            ...atualizada,
+            itensPorCaixa: novaCaixa,
+            descontoCaixa: novoDesconto,
+            quantidade: String(arredondarParaCaixa(base, novaCaixa)),
+          })
         }),
       )
-      toast({ title: mudouCaixa ? 'Itens por caixa salvo — vale para as próximas compras' : 'Observação salva' })
+      toast({ title: mudouCaixa ? 'Caixa fechada salva — vale para as próximas compras' : 'Observação salva' })
     } catch (err: any) {
       toast({
         title: 'Erro ao salvar observação',
@@ -449,9 +493,10 @@ export function ModalGerarCompraItemOrcamento({
                         <ObservacaoCaixaFechada
                           observacao={l.observacaoFornecedor}
                           itensPorCaixa={l.itensPorCaixa}
+                          descontoCaixa={l.descontoCaixa}
                           podeEditarCaixa={podeEditarCaixa}
                           salvando={salvandoObs === l.produto_id}
-                          onSalvar={(obs, qtd) => salvarObservacao(l.produto_id, obs, qtd)}
+                          onSalvar={(obs, qtd, desc) => salvarObservacao(l.produto_id, obs, qtd, desc)}
                         />
                       </div>
                     </TableCell>
@@ -490,10 +535,7 @@ export function ModalGerarCompraItemOrcamento({
                         onChange={(e) => atualizarLinha(l.chave, 'quantidade', e.target.value)}
                       />
                       {/* SPEC-240: fora da caixa só avisa (às vezes o fornecedor vende avulso) */}
-                      {!l.remover &&
-                        l.itensPorCaixa > 1 &&
-                        l.qtd > 0 &&
-                        Math.abs(l.qtd / l.itensPorCaixa - Math.round(l.qtd / l.itensPorCaixa)) > 1e-9 && (
+                      {!l.remover && l.qtd > 0 && l.itensPorCaixa > 1 && !fechaCaixa(l.qtd, l.itensPorCaixa) && (
                           <span className="block text-[11px] text-amber-700 mt-1">
                             Não fecha caixa de {l.itensPorCaixa}
                           </span>
@@ -509,6 +551,21 @@ export function ModalGerarCompraItemOrcamento({
                         disabled={l.remover}
                         onChange={(e) => atualizarLinha(l.chave, 'custoLiquido', e.target.value)}
                       />
+                      {/* SPEC-240 C: desconto da caixa fechada */}
+                      {!l.remover && l.descontoCaixa > 0 && l.itensPorCaixa > 1 && (
+                        <span
+                          className={cn(
+                            'block text-[11px] mt-1',
+                            fechaCaixa(l.qtd, l.itensPorCaixa) && !l.custoManual
+                              ? 'text-emerald-700'
+                              : 'text-slate-500',
+                          )}
+                        >
+                          {fechaCaixa(l.qtd, l.itensPorCaixa) && !l.custoManual
+                            ? `−${l.descontoCaixa}% caixa fechada`
+                            : `Caixa fechada: −${l.descontoCaixa}%`}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="align-top">
                       <CampoPercentual

@@ -14,34 +14,42 @@ import { cn } from '@/lib/utils'
 export function ObservacaoCaixaFechada({
   observacao,
   itensPorCaixa,
+  descontoCaixa,
   podeEditarCaixa,
   salvando,
   onSalvar,
 }: {
   observacao: string | null
   itensPorCaixa: number
+  /** SPEC-240 C: % de desconto do fornecedor quando fecha caixa (0 = sem desconto). */
+  descontoCaixa: number
   podeEditarCaixa: boolean
   salvando: boolean
-  onSalvar: (observacao: string, itensPorCaixa: string) => void
+  onSalvar: (observacao: string, itensPorCaixa: string, descontoCaixa: string) => void
 }) {
   const [aberto, setAberto] = useState(false)
   const [obs, setObs] = useState('')
   const [qtd, setQtd] = useState('')
+  const [desconto, setDesconto] = useState('')
 
   function abrir() {
     setObs(observacao ?? '')
     setQtd(itensPorCaixa > 1 ? String(itensPorCaixa) : '')
+    setDesconto(descontoCaixa > 0 ? String(descontoCaixa) : '')
     setAberto(true)
   }
 
   function salvar() {
-    onSalvar(obs, qtd)
+    onSalvar(obs, qtd, desconto)
     setAberto(false)
   }
 
   const temCaixa = itensPorCaixa > 1
   const temInfo = observacao || temCaixa
   const qtdInvalida = qtd.trim() !== '' && !/^\d+$/.test(qtd.trim())
+  const descontoNum = parseFloat(desconto.replace(',', '.'))
+  const descontoInvalido =
+    desconto.trim() !== '' && (Number.isNaN(descontoNum) || descontoNum < 0 || descontoNum >= 100)
 
   return (
     <Popover open={aberto} onOpenChange={(v) => (v ? abrir() : setAberto(false))}>
@@ -63,7 +71,13 @@ export function ObservacaoCaixaFechada({
             <Pencil className="w-3 h-3" />
           )}
           {temInfo
-            ? [temCaixa ? `Caixa: ${itensPorCaixa}` : null, observacao].filter(Boolean).join(' · ')
+            ? [
+                temCaixa ? `Caixa: ${itensPorCaixa}` : null,
+                temCaixa && descontoCaixa > 0 ? `−${descontoCaixa}%` : null,
+                observacao,
+              ]
+                .filter(Boolean)
+                .join(' · ')
             : 'Caixa / observação'}
         </button>
       </PopoverTrigger>
@@ -88,6 +102,25 @@ export function ObservacaoCaixaFechada({
           {qtdInvalida && <p className="text-[11px] text-red-600">Use um número inteiro.</p>}
         </div>
         <div className="space-y-1">
+          <Label className="text-xs">Desconto na caixa fechada (%)</Label>
+          <Input
+            type="number"
+            min="0"
+            max="99.99"
+            step="0.01"
+            className="h-8 text-sm"
+            value={desconto}
+            disabled={!podeEditarCaixa}
+            onChange={(e) => setDesconto(e.target.value)}
+            placeholder="ex: 5"
+          />
+          <p className="text-[11px] text-slate-500">
+            Só quando o fornecedor dá desconto para caixa fechada. O preço de custo já vem com o desconto quando a
+            quantidade fecha caixa. Vazio = sem desconto.
+          </p>
+          {descontoInvalido && <p className="text-[11px] text-red-600">Use um % entre 0 e 99,99.</p>}
+        </div>
+        <div className="space-y-1">
           <Label className="text-xs">Observação</Label>
           <Textarea
             className="text-sm resize-none"
@@ -97,7 +130,7 @@ export function ObservacaoCaixaFechada({
             placeholder="ex: fornecedor só fatura acima de R$ 500"
           />
         </div>
-        <Button size="sm" className="w-full h-8" onClick={salvar} disabled={salvando || qtdInvalida}>
+        <Button size="sm" className="w-full h-8" onClick={salvar} disabled={salvando || qtdInvalida || descontoInvalido}>
           {salvando ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : null}
           Salvar
         </Button>

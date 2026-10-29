@@ -184,6 +184,8 @@ export interface ProdutoImpostos {
   // por decisão explícita da Débora (não na grid principal).
   observacaoFornecedor: string | null
   qtdMinima: number | null
+  // SPEC-240 C: % de desconto do fornecedor quando a compra fecha caixa (produtos.desconto_caixa_fechada)
+  descontoCaixaPerc: number
 }
 
 // SPEC-240 B: a carga da SPEC-237 marcou os vínculos com "SPEC-237: ..." na observação (marca do rollback da
@@ -215,7 +217,7 @@ export async function getProdutoImpostos(
   // SPEC-193 C2: custo/impostos só pela vw_produtos_custo (Administração).
   const { data: produto, error } = await (supabase as any)
     .from('vw_produtos_custo')
-    .select('preco_custo, icms_entrada, ipi_entrada, porc_st, porc_despesas, porc_desconto')
+    .select('preco_custo, icms_entrada, ipi_entrada, porc_st, porc_despesas, porc_desconto, desconto_caixa_fechada')
     .eq('id', produtoId)
     .maybeSingle()
   if (error) throw error
@@ -245,6 +247,7 @@ export async function getProdutoImpostos(
     descontoPerc: produto?.porc_desconto ?? null,
     observacaoFornecedor,
     qtdMinima,
+    descontoCaixaPerc: Number(produto?.desconto_caixa_fechada) || 0,
   }
 }
 
@@ -263,7 +266,9 @@ export async function getProdutoImpostosBulk(
   // SPEC-193 C2: custo/impostos só pela vw_produtos_custo (Administração).
   const { data: produtos, error } = await (supabase as any)
     .from('vw_produtos_custo')
-    .select('id, preco_custo, icms_entrada, ipi_entrada, porc_st, porc_despesas, porc_desconto')
+    .select(
+      'id, preco_custo, icms_entrada, ipi_entrada, porc_st, porc_despesas, porc_desconto, desconto_caixa_fechada',
+    )
     .in('id', produtoIds)
   if (error) throw error
 
@@ -295,6 +300,7 @@ export async function getProdutoImpostosBulk(
       descontoPerc: p.porc_desconto ?? null,
       observacaoFornecedor: observacoes.get(p.id) ?? null,
       qtdMinima: qtdsMinimas.get(p.id) ?? null,
+      descontoCaixaPerc: Number(p.desconto_caixa_fechada) || 0,
     })
   })
 
@@ -361,13 +367,26 @@ export async function podeEditarCaixaFechada(): Promise<boolean> {
   return data === true
 }
 
-/** Grava a regra na peça; vazio/1 = sem regra. */
-export async function salvarItensPorCaixa(produtoId: string, itensPorCaixa: number | null): Promise<void> {
+/** Grava a regra na peça; vazio/1 = sem regra. SPEC-240 C: junto o desconto da caixa fechada (0 = sem). */
+export async function salvarItensPorCaixa(
+  produtoId: string,
+  itensPorCaixa: number | null,
+  descontoCaixaPerc: number,
+): Promise<void> {
   const { error } = await (supabase as any)
     .from('produtos')
-    .update({ multiplo_compra: itensPorCaixa && itensPorCaixa > 1 ? itensPorCaixa : 1 })
+    .update({
+      multiplo_compra: itensPorCaixa && itensPorCaixa > 1 ? itensPorCaixa : 1,
+      desconto_caixa_fechada: descontoCaixaPerc > 0 ? descontoCaixaPerc : 0,
+    })
     .eq('id', produtoId)
   if (error) throw error
+}
+
+/** A quantidade fecha caixa (múltipla dos itens por caixa)? */
+export function fechaCaixa(qtd: number, itensPorCaixa: number): boolean {
+  if (!(itensPorCaixa > 1) || !(qtd > 0)) return false
+  return Math.abs(qtd / itensPorCaixa - Math.round(qtd / itensPorCaixa)) < 1e-9
 }
 
 /** Menor múltiplo da caixa que cobre a quantidade (38 com caixa 10 → 40). */
