@@ -34,6 +34,7 @@ import {
   Mail,
   CalendarClock,
   FileDown,
+  Upload,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,7 @@ import { PedidoParcelasPanel } from '@/components/compra/PedidoParcelasPanel'
 import { PedidoItensResumo } from '@/components/compra/PedidoItensResumo'
 import { EditarPedidoDialog } from '@/components/compra/EditarPedidoDialog'
 import { EnviarFornecedorDialog } from '@/components/compra/EnviarFornecedorDialog'
+import { ImportarPedidosConnectDialog } from '@/components/compra/ImportarPedidosConnectDialog'
 import { baixarPdfPedidoFornecedor } from '@/lib/pdf-pedido-fornecedor'
 import {
   getPedidosCompra,
@@ -102,6 +104,7 @@ export default function PedidosCompra() {
   const [voltando, setVoltando] = useState(false)
   const [pdfId, setPdfId] = useState<string | null>(null)
   const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
+  const [importarConnectAberto, setImportarConnectAberto] = useState(false)
 
   // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
   async function baixarPdf(r: PedidoCompraRow) {
@@ -257,16 +260,31 @@ export default function PedidosCompra() {
             com erro, use "Voltar para edição".
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={loadData}
-          className="shadow-sm w-full sm:w-auto"
-          disabled={loading}
-        >
-          <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
-          Atualizar
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            onClick={() => setImportarConnectAberto(true)}
+            className="shadow-sm w-full sm:w-auto"
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Importar da Connect (.xlsx)
+          </Button>
+          <Button
+            variant="outline"
+            onClick={loadData}
+            className="shadow-sm w-full sm:w-auto"
+            disabled={loading}
+          >
+            <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
+            Atualizar
+          </Button>
+        </div>
       </div>
+      <ImportarPedidosConnectDialog
+        open={importarConnectAberto}
+        onOpenChange={setImportarConnectAberto}
+        onImportado={loadData}
+      />
 
       {chegando.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shrink-0">
