@@ -102,6 +102,14 @@ export interface EntregaFutura {
   l_fixo: string | null
   empresa_nome: string | null
   q_entrega_futura: number
+  // SPEC-243: 'connect' = herança da Connect (só Débora e administração vinculam); 'sistema' = venda do sistema novo
+  origem: 'connect' | 'sistema'
+}
+
+export async function podeVincularHerancaConnect(): Promise<boolean> {
+  const { data, error } = await (supabase as any).rpc('pode_vincular_heranca_connect')
+  if (error) return false
+  return data === true
 }
 
 export async function getEntregasFuturas(produtoIds: string[]): Promise<EntregaFutura[]> {
@@ -110,7 +118,11 @@ export async function getEntregasFuturas(produtoIds: string[]): Promise<EntregaF
     p_produto_ids: produtoIds,
   })
   if (error) throw error
-  return ((data ?? []) as any[]).map((e) => ({ ...e, q_entrega_futura: Number(e.q_entrega_futura) || 0 }))
+  return ((data ?? []) as any[]).map((e) => ({
+    ...e,
+    q_entrega_futura: Number(e.q_entrega_futura) || 0,
+    origem: e.origem === 'connect' ? 'connect' : 'sistema',
+  }))
 }
 
 // SPEC-220: espelho da entrada (para o Mateus): nota, itens, para quem foi e financeiro.

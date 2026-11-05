@@ -54,6 +54,7 @@ import {
   getAntecipacoesParaEntrada,
   getDocumentoFornecedor,
   getEntregasFuturas,
+  podeVincularHerancaConnect,
   getNotasFiscaisCompra,
   registrarEntradaNotaCompra,
   type AntecipacaoEntrada,
@@ -157,6 +158,12 @@ export default function EntradaNotaFiscal() {
   const [salvando, setSalvando] = useState(false)
   // SPEC-231 B2: aviso antes de registrar com peça que chegou sem vínculo e cliente esperando
   const [avisoSemVinculo, setAvisoSemVinculo] = useState(false)
+  // SPEC-243: só a Débora e a administração vinculam a chegada à herança da Connect (o banco também trava)
+  const [podeHeranca, setPodeHeranca] = useState(false)
+  const [confirmaHeranca, setConfirmaHeranca] = useState(false)
+  useEffect(() => {
+    podeVincularHerancaConnect().then(setPodeHeranca)
+  }, [])
 
   // SPEC-215: fornecedor da nota (quando veio em nome de outro: o pedido passa a ser dele), ST, parcelas
   // editáveis e pagamento antecipado vinculado.
@@ -473,12 +480,13 @@ export default function EntradaNotaFiscal() {
           Math.min(lerChegou(g.produto_id), g.falta),
           g.itens.flatMap((i) => i.origens),
           entregas.filter((e) => e.produto_id === g.produto_id),
+          podeHeranca,
         )
       }
       return novo
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modo, pedido, chaveChegou, entregas, vinculosEditados])
+  }, [modo, pedido, chaveChegou, entregas, vinculosEditados, podeHeranca])
 
   const vinculadoDe = (produtoId: string) =>
     Object.values(vinculos[produtoId] ?? {}).reduce((s, x) => s + lerQtd(x), 0)
@@ -540,7 +548,10 @@ export default function EntradaNotaFiscal() {
   const semVinculo = pecas
     .map((g) => {
       const chegaAgora = Math.min(lerChegou(g.produto_id), g.falta)
-      const esperando = entregas.filter((e) => e.produto_id === g.produto_id && e.q_entrega_futura > 0)
+      // SPEC-243: a herança da Connect só conta como "esperando" para quem pode vinculá-la
+      const esperando = entregas.filter(
+        (e) => e.produto_id === g.produto_id && e.q_entrega_futura > 0 && (podeHeranca || e.origem !== 'connect'),
+      )
       const aguardam = esperando.reduce((s, e) => s + e.q_entrega_futura, 0)
       const sobra = Math.min(chegaAgora, aguardam) - vinculadoDe(g.produto_id)
       return { g, sobra, esperando }
@@ -555,10 +566,30 @@ export default function EntradaNotaFiscal() {
       setAvisoSemVinculo(true)
       return
     }
+    await registrarComConfirmacao()
+  }
+
+  // SPEC-243: vincular a chegada à herança da Connect pede uma confirmação (só a Débora/administração chegam aqui)
+  const vinculosHeranca = Object.entries(vinculos).flatMap(([, porL]) =>
+    Object.entries(porL)
+      .map(([projeto_item_id, q]) => ({
+        e: entregas.find((x) => x.projeto_item_id === projeto_item_id),
+        q: lerQtd(q),
+      }))
+      .filter((x) => x.e?.origem === 'connect' && x.q > 0),
+  )
+
+  async function registrarComConfirmacao() {
+    setAvisoSemVinculo(false)
+    if (vinculosHeranca.length > 0) {
+      setConfirmaHeranca(true)
+      return
+    }
     await registrar()
   }
 
   async function registrar() {
+    setConfirmaHeranca(false)
     setAvisoSemVinculo(false)
     setSalvando(true)
     try {
@@ -1445,13 +1476,44 @@ export default function EntradaNotaFiscal() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar e vincular</AlertDialogCancel>
-            <AlertDialogAction onClick={() => registrar()}>Registrar mesmo assim</AlertDialogAction>
+            <AlertDialogAction onClick={() => registrarComConfirmacao()}>Registrar mesmo assim</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* SPEC-243: confirmação para vincular a chegada à herança da Connect */}
+      <AlertDialog open={confirmaHeranca} onOpenChange={setConfirmaHeranca}>
+        <AlertDialogContent className="max-w-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vincular a vendas antigas da Connect?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-slate-600">
+                <p>
+                  Esta chegada vai da entrega futura para a reserva de vendas que vieram da Connect. Não muda o
+                  Estoque Geral nem o financeiro; o cancelamento da nota desfaz o vínculo.
+                </p>
+                <ul className="space-y-1">
+                  {vinculosHeranca.map(({ e, q }) => (
+                    <li key={e!.projeto_item_id} className="rounded-md border border-amber-200 bg-amber-50 p-2">
+                      <span className="font-semibold text-slate-800">{fmtQtd(q)}</span> para {e!.cliente_nome} (
+                      {e!.venda_numero || e!.orcamento_numero || '-'}
+                      {e!.l_fixo ? ' ' + e!.l_fixo : ''})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => registrar()}>Confirmar e registrar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {pecaVinculo && (
         <VinculoClientesDialog
+          podeHeranca={podeHeranca}
           aberto={!!pecaVinculo}
           onFechar={() => setPecaVinculo(null)}
           produtoNome={pecas.find((g) => g.produto_id === pecaVinculo)?.produto_nome ?? ''}

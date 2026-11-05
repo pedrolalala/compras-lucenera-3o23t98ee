@@ -20,10 +20,16 @@ export const lerQtd = (v: string | undefined) => parseFloat((v ?? '').replace(',
 const fmt = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
 
 /** Sugestão: os L de origem do pedido primeiro (na ordem), depois as outras vendas, até acabar o que chegou. */
-export function sugerirVinculos(chegou: number, origens: string[], entregas: EntregaFutura[]) {
+// SPEC-243: herança da Connect só entra na sugestão para quem pode vinculá-la (Débora e administração).
+export function sugerirVinculos(
+  chegou: number,
+  origens: string[],
+  entregas: EntregaFutura[],
+  podeHeranca = false,
+) {
   const ordem = [
     ...origens.map((id) => entregas.find((e) => e.projeto_item_id === id)).filter(Boolean),
-  ] as EntregaFutura[]
+  ].filter((e) => podeHeranca || (e as EntregaFutura).origem !== 'connect') as EntregaFutura[]
   let resta = chegou
   const r: Record<string, string> = {}
   for (const e of ordem) {
@@ -45,6 +51,7 @@ export function VinculoClientesDialog({
   entregas,
   valores,
   onSalvar,
+  podeHeranca = false,
 }: {
   aberto: boolean
   onFechar: () => void
@@ -53,12 +60,18 @@ export function VinculoClientesDialog({
   entregas: EntregaFutura[]
   valores: Record<string, string>
   onSalvar: (v: Record<string, string>) => void
+  /** SPEC-243: só a Débora e a administração vinculam a herança da Connect (o banco também trava) */
+  podeHeranca?: boolean
 }) {
   const [v, setV] = useState<Record<string, string>>(valores)
   useEffect(() => {
     if (aberto) setV(valores)
   }, [aberto, valores])
 
+  // sistema novo primeiro, herança da Connect no fim (a lista do banco já vem nessa ordem; garante aqui também)
+  const ordenadas = [...entregas].sort(
+    (a, b) => Number(a.origem === 'connect') - Number(b.origem === 'connect'),
+  )
   const total = Object.values(v).reduce((s, x) => s + lerQtd(x), 0)
   const acimaDoChegou = total > chegou + 0.0001
   const acimaDoL = entregas.some((e) => lerQtd(v[e.projeto_item_id]) > e.q_entrega_futura + 0.0001)
@@ -88,13 +101,30 @@ export function VinculoClientesDialog({
               </tr>
             </thead>
             <tbody>
-              {entregas.map((e) => {
+              {ordenadas.map((e) => {
                 const q = lerQtd(v[e.projeto_item_id])
                 const erro = q > e.q_entrega_futura + 0.0001 || q < 0
+                const heranca = e.origem === 'connect'
+                const travada = heranca && !podeHeranca
                 return (
-                  <tr key={e.projeto_item_id} className="border-b border-slate-100 last:border-0">
+                  <tr
+                    key={e.projeto_item_id}
+                    className={cn(
+                      'border-b border-slate-100 last:border-0',
+                      heranca && 'bg-amber-50/60',
+                      travada && 'opacity-60',
+                    )}
+                  >
                     <td className="py-1.5">
                       {e.venda_numero ?? e.orcamento_numero ?? '—'}
+                      {heranca && (
+                        <span
+                          className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800"
+                          title="Venda que veio do sistema Connect"
+                        >
+                          Herança Connect
+                        </span>
+                      )}
                       {e.empresa_nome && <span className="block text-[11px] text-slate-400">{e.empresa_nome}</span>}
                     </td>
                     <td className="py-1.5">
@@ -112,7 +142,12 @@ export function VinculoClientesDialog({
                           size="sm"
                           variant="ghost"
                           className="h-7 px-1.5 text-[11px]"
-                          title="Vincular o que este L espera (até o que sobra do que chegou)"
+                          title={
+                            travada
+                              ? 'Só a Débora e a administração vinculam a herança da Connect'
+                              : 'Vincular o que este L espera (até o que sobra do que chegou)'
+                          }
+                          disabled={travada}
                           onClick={() => {
                             const outros = total - q
                             const max = Math.max(0, Math.min(e.q_entrega_futura, chegou - outros))
@@ -126,6 +161,7 @@ export function VinculoClientesDialog({
                           className={cn('h-8 w-20 text-right', erro && 'border-red-500 text-red-600')}
                           value={v[e.projeto_item_id] ?? ''}
                           placeholder="0"
+                          disabled={travada}
                           onChange={(ev) => setV({ ...v, [e.projeto_item_id]: ev.target.value })}
                         />
                       </div>
@@ -135,6 +171,13 @@ export function VinculoClientesDialog({
               })}
             </tbody>
           </table>
+        )}
+        {entregas.some((e) => e.origem === 'connect') && (
+          <p className="text-xs text-amber-800">
+            {podeHeranca
+              ? 'Linhas "Herança Connect" são vendas antigas do sistema Connect. Vincular a elas pede uma confirmação ao registrar a nota.'
+              : 'Linhas "Herança Connect" são vendas antigas do sistema Connect: só a Débora e a administração vinculam a elas.'}
+          </p>
         )}
         <div className={cn('text-sm', acimaDoChegou ? 'text-red-600' : 'text-slate-600')}>
           Vinculado <strong>{fmt(total)}</strong> de {fmt(chegou)}
