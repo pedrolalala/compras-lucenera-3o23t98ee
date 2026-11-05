@@ -44,16 +44,38 @@ export interface PedidoParaEntrada {
 }
 
 export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaEntrada | null> {
-  const { data: pedido, error } = await (supabase as any)
-    .from('pedidos_compra')
-    .select(
-      'id, numero, status, valor_total, condicoes_pagamento, prazo_pagamento_dias, fornecedor_id, contatos!fornecedor_id(nome, cnpj, cpf_cnpj), empresas(nome)',
-    )
-    .ilike('numero', numero.trim())
-    .maybeSingle()
+  const colunas =
+    'id, numero, status, valor_total, condicoes_pagamento, prazo_pagamento_dias, fornecedor_id, contatos!fornecedor_id(nome, cnpj, cpf_cnpj), empresas(nome)'
+  const digitado = numero.trim()
+  // % e _ digitados valem como texto, não como curinga
+  const escapado = digitado.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+  // 1) número exato; 2) se não achar, número que CONTÉM o digitado — pedidos da Connect ficam
+  //    gravados como "1993 CONNECT" e os antigos como "PC-LEGADO-1720" (busca por "1993" não os achava).
+  let { data: achados, error } = await (supabase as any)
+    .from('pedidos_compra')
+    .select(colunas)
+    .ilike('numero', escapado)
+    .limit(2)
   if (error) throw error
-  if (!pedido) return null
+
+  if (!achados?.length) {
+    const r = await (supabase as any)
+      .from('pedidos_compra')
+      .select(colunas)
+      .ilike('numero', `%${escapado}%`)
+      .order('numero', { ascending: true })
+      .limit(6)
+    if (r.error) throw r.error
+    achados = r.data
+  }
+
+  if (!achados?.length) return null
+  if (achados.length > 1) {
+    const lista = (achados as any[]).map((p) => p.numero).join(', ')
+    throw new Error(`Vários pedidos combinam com "${digitado}": ${lista}. Digite o número completo do pedido.`)
+  }
+  const pedido = achados[0]
 
   const { data: itens } = await (supabase as any)
     .from('pedido_compra_itens')

@@ -846,6 +846,13 @@ export default function EntradaNotaFiscal() {
                       </span>
                     )}
                   </div>
+                  {pedido.itens.length === 0 && !pedidoFechado && (
+                    <div className="sm:col-span-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                      Este pedido veio da Connect só com fornecedor e valor — não tem as peças. Para dar
+                      entrada agora, use <strong>"Não tenho pedido (entrada avulsa)"</strong> e escolha o
+                      fornecedor {pedido.fornecedor_nome !== '—' ? `(${pedido.fornecedor_nome})` : ''}.
+                    </div>
+                  )}
                   {pedido.itens.length > 0 && (
                     <div className="sm:col-span-4">
                       <p className="text-slate-500 mb-1">
