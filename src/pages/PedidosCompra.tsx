@@ -35,6 +35,7 @@ import {
   CalendarClock,
   FileDown,
   Upload,
+  FileText,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -44,6 +45,7 @@ import { PedidoItensResumo } from '@/components/compra/PedidoItensResumo'
 import { EditarPedidoDialog } from '@/components/compra/EditarPedidoDialog'
 import { EnviarFornecedorDialog } from '@/components/compra/EnviarFornecedorDialog'
 import { ImportarPedidosConnectDialog } from '@/components/compra/ImportarPedidosConnectDialog'
+import { ImportarPdfPedidoConnectDialog } from '@/components/compra/ImportarPdfPedidoConnectDialog'
 import { baixarPdfPedidoFornecedor } from '@/lib/pdf-pedido-fornecedor'
 import {
   getPedidosCompra,
@@ -105,6 +107,7 @@ export default function PedidosCompra() {
   const [pdfId, setPdfId] = useState<string | null>(null)
   const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
   const [importarConnectAberto, setImportarConnectAberto] = useState(false)
+  const [importarPdfAberto, setImportarPdfAberto] = useState(false)
 
   // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
   async function baixarPdf(r: PedidoCompraRow) {
@@ -271,6 +274,14 @@ export default function PedidosCompra() {
           </Button>
           <Button
             variant="outline"
+            onClick={() => setImportarPdfAberto(true)}
+            className="shadow-sm w-full sm:w-auto"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Importar pedido da Connect (PDF)
+          </Button>
+          <Button
+            variant="outline"
             onClick={loadData}
             className="shadow-sm w-full sm:w-auto"
             disabled={loading}
@@ -283,6 +294,11 @@ export default function PedidosCompra() {
       <ImportarPedidosConnectDialog
         open={importarConnectAberto}
         onOpenChange={setImportarConnectAberto}
+        onImportado={loadData}
+      />
+      <ImportarPdfPedidoConnectDialog
+        open={importarPdfAberto}
+        onOpenChange={setImportarPdfAberto}
         onImportado={loadData}
       />
 

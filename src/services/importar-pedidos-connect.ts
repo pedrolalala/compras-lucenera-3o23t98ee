@@ -87,6 +87,56 @@ export async function lerPlanilhaPedidosConnect(arquivo: File): Promise<PedidoCo
   return Array.from(porCodigo.values())
 }
 
+// ---- fase 2: PDF do pedido (com as peças)
+
+export interface ResultadoPdf {
+  aplicado: boolean
+  acao: 'criar' | 'completar' | 'ja_tem_itens' | 'pedido_fechado' | 'sem_fornecedor'
+  bloqueado: boolean
+  numero: string
+  pedido_id: string | null
+  fornecedor: string
+  itens_pdf: number
+  itens_inseridos: number
+  soma_itens: number
+  total_pdf: number | null
+  valor_pedido: number | null
+  pecas_nao_cadastradas: { codigo: number; referencia: string | null }[]
+  avisos: string[]
+}
+
+/** aplicar=false = prévia (nada é gravado); aplicar=true grava os itens (completa ou cria o pedido). */
+export async function importarPedidoConnectPdf(
+  pedido: import('@/lib/pedido-connect-parser').PedidoPdf,
+  aplicar: boolean,
+): Promise<ResultadoPdf> {
+  const itens = pedido.itens.map((i) => {
+    const codigo = Number(i.codigo_produto)
+    if (!Number.isInteger(codigo)) throw new Error(`Código de peça inválido no PDF: "${i.codigo_produto}".`)
+    return {
+      codigo_produto: codigo,
+      referencia: i.referencia,
+      quantidade: i.quantidade,
+      valor_unitario: i.valor_unitario,
+    }
+  })
+  const { data, error } = await (supabase as any).rpc('importar_pedido_connect_pdf', {
+    p_pedido: {
+      numero: pedido.numero,
+      fornecedor: pedido.fornecedor,
+      empresa: pedido.empresa,
+      emissao: pedido.emissao,
+      entrega: pedido.entrega,
+      pagamento: pedido.pagamento,
+      total: pedido.total,
+      itens,
+    },
+    p_aplicar: aplicar,
+  })
+  if (error) throw error
+  return data as ResultadoPdf
+}
+
 /** aplicar=false só mostra a prévia (nada é gravado); aplicar=true grava os pedidos novos. */
 export async function importarPedidosConnect(
   pedidos: PedidoConnectLinha[],
