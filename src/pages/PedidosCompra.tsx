@@ -52,6 +52,7 @@ import {
   cancelarPedidoCompra,
   aprovarPedidoCompra,
   voltarPedidoParaEdicao,
+  atualizarPrevisaoPedido,
   STATUS_PEDIDO_COMPRA,
   STATUS_PEDIDO_COMPRA_ABERTO,
   STATUS_PEDIDO_COMPRA_CANCELAVEL,
@@ -104,6 +105,11 @@ export default function PedidosCompra() {
   const [pedidoParaVoltar, setPedidoParaVoltar] = useState<PedidoCompraRow | null>(null)
   const [motivoVoltar, setMotivoVoltar] = useState('')
   const [voltando, setVoltando] = useState(false)
+  // SPEC-253 C: atualizar só a previsão de entrega de pedido aprovado
+  const [pedidoParaPrever, setPedidoParaPrever] = useState<PedidoCompraRow | null>(null)
+  const [novaPrevisao, setNovaPrevisao] = useState('')
+  const [motivoPrevisao, setMotivoPrevisao] = useState('')
+  const [salvandoPrevisao, setSalvandoPrevisao] = useState(false)
   const [pdfId, setPdfId] = useState<string | null>(null)
   const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
   const [importarConnectAberto, setImportarConnectAberto] = useState(false)
@@ -201,6 +207,28 @@ export default function PedidosCompra() {
       })
     } finally {
       setCancelando(false)
+    }
+  }
+
+  async function handleConfirmPrevisao() {
+    if (!pedidoParaPrever || !novaPrevisao || !motivoPrevisao.trim()) return
+    setSalvandoPrevisao(true)
+    try {
+      await atualizarPrevisaoPedido(pedidoParaPrever.id, novaPrevisao, motivoPrevisao)
+      toast({
+        title: `Previsão do pedido #${pedidoParaPrever.numero} atualizada`,
+        description: 'A nova data já aparece na Venda Parcial, ao lado das peças em Entrega Futura.',
+      })
+      setPedidoParaPrever(null)
+      await loadData()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao atualizar a previsão',
+        description: err?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSalvandoPrevisao(false)
     }
   }
 
@@ -539,6 +567,23 @@ export default function PedidosCompra() {
                               </Button>
                             </>
                           )}
+                          {(r.status === 'aprovado' || r.status === 'parcialmente_recebido') && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              title="Fornecedor avisou atraso? Atualize só a data prevista (não desfaz a aprovação)"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setNovaPrevisao(r.data_prevista_entrega ?? '')
+                                setMotivoPrevisao('')
+                                setPedidoParaPrever(r)
+                              }}
+                            >
+                              <CalendarClock className="w-3.5 h-3.5 mr-1" />
+                              Previsão
+                            </Button>
+                          )}
                           {r.status === 'aprovado' && (
                             <Button
                               size="sm"
@@ -602,6 +647,48 @@ export default function PedidosCompra() {
           loadData()
         }}
       />
+
+      <AlertDialog
+        open={pedidoParaPrever != null}
+        onOpenChange={(open) => {
+          if (!open && !salvandoPrevisao) setPedidoParaPrever(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Atualizar a previsão do pedido #{pedidoParaPrever?.numero}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Muda só a data prevista de entrega, sem desfazer a aprovação. A equipe vê a nova data na Venda
+              Parcial. Data atual: {fmtDia(pedidoParaPrever?.data_prevista_entrega ?? null)}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            type="date"
+            value={novaPrevisao}
+            onChange={(e) => setNovaPrevisao(e.target.value)}
+            disabled={salvandoPrevisao}
+          />
+          <Textarea
+            placeholder="Motivo (obrigatório) — ex.: fornecedor avisou atraso"
+            value={motivoPrevisao}
+            onChange={(e) => setMotivoPrevisao(e.target.value)}
+            disabled={salvandoPrevisao}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={salvandoPrevisao}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmPrevisao()
+              }}
+              disabled={salvandoPrevisao || !novaPrevisao || !motivoPrevisao.trim()}
+            >
+              {salvandoPrevisao ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Salvar previsão
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pedidoParaVoltar != null}

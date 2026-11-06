@@ -626,6 +626,21 @@ export async function voltarPedidoParaEdicao(pedidoId: string, motivo: string): 
   if (error) throw error
 }
 
+// SPEC-253 C: atualiza a data prevista de entrega de pedido já aprovado (fornecedor atrasou) sem desfazer a aprovação;
+// a nova data aparece na Venda Parcial. O histórico fica na observação do pedido e no log de auditoria.
+export async function atualizarPrevisaoPedido(
+  pedidoId: string,
+  dataPrevista: string,
+  motivo: string,
+): Promise<void> {
+  const { error } = await (supabase as any).rpc('atualizar_previsao_pedido_compra', {
+    p_pedido_id: pedidoId,
+    p_data_prevista: dataPrevista,
+    p_motivo: motivo,
+  })
+  if (error) throw error
+}
+
 export async function editarPedidoCompra(
   input: EditarPedidoInput,
 ): Promise<{ valor_total: number; parcelas_criadas: number }> {
