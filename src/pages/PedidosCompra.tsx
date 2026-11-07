@@ -46,6 +46,8 @@ import { EditarPedidoDialog } from '@/components/compra/EditarPedidoDialog'
 import { EnviarFornecedorDialog } from '@/components/compra/EnviarFornecedorDialog'
 import { ImportarPedidosConnectDialog } from '@/components/compra/ImportarPedidosConnectDialog'
 import { ImportarPdfPedidoConnectDialog } from '@/components/compra/ImportarPdfPedidoConnectDialog'
+import { PedidoPagoPerguntaDialog } from '@/components/compra/PedidoPagoPerguntaDialog'
+import { perguntaPagamentoPedido } from '@/services/pedido-pago-pergunta'
 import { baixarPdfPedidoFornecedor } from '@/lib/pdf-pedido-fornecedor'
 import {
   getPedidosCompra,
@@ -114,6 +116,9 @@ export default function PedidosCompra() {
   const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
   const [importarConnectAberto, setImportarConnectAberto] = useState(false)
   const [importarPdfAberto, setImportarPdfAberto] = useState(false)
+  // SPEC-258 (Financeiro) 4b: pedido concluído com parcelas previstas pergunta "já foram pagas?"
+  const [filaPagamento, setFilaPagamento] = useState<PedidoCompraRow[]>([])
+  const [pagamentoAdiado, setPagamentoAdiado] = useState<Set<string>>(new Set())
 
   // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
   async function baixarPdf(r: PedidoCompraRow) {
@@ -151,6 +156,40 @@ export default function PedidosCompra() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // SPEC-258 4b: depois de carregar, confere no banco quais pedidos concluídos ainda esperam a resposta de pagamento.
+  useEffect(() => {
+    const concluidos = rows.filter((r) => r.status === 'recebido').slice(0, 40)
+    if (concluidos.length === 0) {
+      setFilaPagamento([])
+      return
+    }
+    let ativo = true
+    Promise.all(
+      concluidos.map((r) =>
+        perguntaPagamentoPedido(r.id)
+          .then((p) => (p.perguntar ? r : null))
+          .catch(() => null),
+      ),
+    ).then((res) => {
+      if (ativo) setFilaPagamento(res.filter((x): x is PedidoCompraRow => x !== null))
+    })
+    return () => {
+      ativo = false
+    }
+  }, [rows])
+
+  const pedidoPergunta = useMemo(
+    () => filaPagamento.find((r) => !pagamentoAdiado.has(r.id)) ?? null,
+    [filaPagamento, pagamentoAdiado],
+  )
+
+  function pagamentoRespondido(pedidoId: string) {
+    setFilaPagamento((f) => f.filter((r) => r.id !== pedidoId))
+  }
+  function pagamentoAdiar(pedidoId: string) {
+    setPagamentoAdiado((s) => new Set(s).add(pedidoId))
+  }
 
   const contagem = useMemo(() => {
     const c: Record<string, number> = { todos: rows.length, abertos: 0 }
@@ -319,6 +358,27 @@ export default function PedidosCompra() {
           </Button>
         </div>
       </div>
+      <PedidoPagoPerguntaDialog
+        pedido={
+          pedidoPergunta
+            ? { id: pedidoPergunta.id, numero: pedidoPergunta.numero, fornecedor_nome: pedidoPergunta.fornecedor_nome }
+            : null
+        }
+        onRespondido={pagamentoRespondido}
+        onAdiar={pagamentoAdiar}
+      />
+      {filaPagamento.length > 0 && !pedidoPergunta && (
+        <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <span>
+            {filaPagamento.length === 1
+              ? '1 pedido concluído aguarda a resposta: as parcelas já foram pagas?'
+              : `${filaPagamento.length} pedidos concluídos aguardam a resposta: as parcelas já foram pagas?`}
+          </span>
+          <Button size="sm" variant="outline" onClick={() => setPagamentoAdiado(new Set())}>
+            Responder agora
+          </Button>
+        </div>
+      )}
       <ImportarPedidosConnectDialog
         open={importarConnectAberto}
         onOpenChange={setImportarConnectAberto}

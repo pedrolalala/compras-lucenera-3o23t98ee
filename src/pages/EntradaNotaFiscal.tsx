@@ -82,6 +82,7 @@ import {
   sugerirVinculos,
 } from '@/components/compra/VinculoClientesDialog'
 import { EspelhoEntradaDialog } from '@/components/compra/EspelhoEntradaDialog'
+import { PedidoPagoPerguntaDialog } from '@/components/compra/PedidoPagoPerguntaDialog'
 
 const hoje = () => new Date().toISOString().slice(0, 10)
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -195,6 +196,8 @@ export default function EntradaNotaFiscal() {
   const [vinculosEditados, setVinculosEditados] = useState<Record<string, boolean>>({})
   const [pecaVinculo, setPecaVinculo] = useState<string | null>(null)
   const [espelhoNotaId, setEspelhoNotaId] = useState<string | null>(null)
+  // SPEC-258 (Financeiro) 4b: pedido que ficou Concluído com esta entrada pergunta "as parcelas já foram pagas?" (depois do espelho)
+  const [perguntaPagamento, setPerguntaPagamento] = useState<{ id: string; numero: string; fornecedor_nome: string } | null>(null)
 
   const [historico, setHistorico] = useState<NotaFiscalCompraRow[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
@@ -652,6 +655,9 @@ export default function EntradaNotaFiscal() {
         carregarHistorico()
         // SPEC-220: já mostra o espelho da entrada (para o Mateus)
         if (r.nota_id) setEspelhoNotaId(r.nota_id)
+        if (r.status === 'recebido') {
+          setPerguntaPagamento({ id: pedido.id, numero: pedido.numero, fornecedor_nome: pedido.fornecedor_nome })
+        }
         return
       }
 
@@ -1537,6 +1543,11 @@ export default function EntradaNotaFiscal() {
         />
       )}
       <EspelhoEntradaDialog notaId={espelhoNotaId} onFechar={() => setEspelhoNotaId(null)} />
+      <PedidoPagoPerguntaDialog
+        pedido={espelhoNotaId ? null : perguntaPagamento}
+        onRespondido={() => setPerguntaPagamento(null)}
+        onAdiar={() => setPerguntaPagamento(null)}
+      />
     </div>
   )
 }
