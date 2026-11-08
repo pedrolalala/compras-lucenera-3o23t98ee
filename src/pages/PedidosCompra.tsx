@@ -558,6 +558,12 @@ export default function PedidosCompra() {
                         <span className="text-sm font-semibold text-slate-700">
                           {fmtBRL(r.valor_total)}
                         </span>
+                        {/* SPEC-263 C: valor de tabela x negociado */}
+                        {r.valor_tabela != null && r.valor_total != null && r.valor_tabela - r.valor_total > 0.005 && (
+                          <span className="block text-[11px] text-emerald-700 whitespace-nowrap">
+                            {r.valor_negociado != null ? 'negociado' : 'com desconto'} · tabela {fmtBRL(r.valor_tabela)}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="align-middle py-2">
                         <StatusBadge status={r.status} />

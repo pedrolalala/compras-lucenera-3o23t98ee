@@ -32,6 +32,7 @@ import {
   type SugestaoFornecedorMarca,
 } from '@/services/marcas'
 import { getFornecedores, type Fornecedor } from '@/services/pedido-compra'
+import { AjustarImpostosMarcaDialog } from '@/components/marcas/AjustarImpostosMarcaDialog'
 import {
   ModalRevisarSugestoesFornecedor,
   type SugestaoRevisao,
@@ -61,6 +62,8 @@ export default function Marcas() {
   // digitada no filtro (ver isFirstRender abaixo).
   const [sugestoes, setSugestoes] = useState<Map<string, SugestaoFornecedorMarca>>(new Map())
   const [modalRevisaoOpen, setModalRevisaoOpen] = useState(false)
+  // SPEC-263 A: ajuste de ST/IPI da marca
+  const [marcaImpostos, setMarcaImpostos] = useState<MarcaComFornecedor | null>(null)
   const isFirstSearchEffect = useRef(true)
 
   // Edição inline do fornecedor por linha — reaproveita a busca fuzzy
@@ -562,6 +565,15 @@ export default function Marcas() {
                               <Button
                                 size="sm"
                                 variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={isSaving}
+                                onClick={() => setMarcaImpostos(m)}
+                              >
+                                Impostos
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
                                 className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
                                 disabled={isSaving}
                                 onClick={() => iniciarEdicao(m.id)}
@@ -588,6 +600,11 @@ export default function Marcas() {
           </Table>
         </div>
       </div>
+
+      <AjustarImpostosMarcaDialog
+        marca={marcaImpostos}
+        onOpenChange={(o) => !o && setMarcaImpostos(null)}
+      />
 
       <ModalRevisarSugestoesFornecedor
         open={modalRevisaoOpen}

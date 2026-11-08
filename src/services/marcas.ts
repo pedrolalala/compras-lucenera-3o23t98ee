@@ -171,3 +171,43 @@ export async function atualizarFornecedorMarca(
     )
   }
 }
+
+// SPEC-263 A: ajustar ST e IPI de todas as peças de uma marca (mudança tributária). A mesma função do banco faz a
+// PRÉVIA (aplicar = false, não grava) e a gravação (aplicar = true). Só quem vê custo (pode_ver_custo_produto) consegue.
+export interface PreviaImpostosMarca {
+  marca: string
+  total_produtos: number
+  produtos_ativos: number
+  alvo_st: number
+  alvo_ipi: number
+  produtos_afetados: number
+  preco_venda_recalculado: number
+  amostra: {
+    codigo: number | string | null
+    nome: string
+    st_antes: number | null
+    st_depois: number | null
+    ipi_antes: number | null
+    ipi_depois: number | null
+  }[]
+  aplicado: boolean
+  gravados: number
+}
+
+export async function ajustarImpostosMarca(params: {
+  marcaId: string
+  st: number | null
+  ipi: number | null
+  somenteComImposto: boolean
+  aplicar: boolean
+}): Promise<PreviaImpostosMarca> {
+  const { data, error } = await (supabase as any).rpc('ajustar_impostos_marca', {
+    p_marca_id: params.marcaId,
+    p_porc_st: params.st,
+    p_ipi: params.ipi,
+    p_somente_com_imposto: params.somenteComImposto,
+    p_aplicar: params.aplicar,
+  })
+  if (error) throw error
+  return data as PreviaImpostosMarca
+}

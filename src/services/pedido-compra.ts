@@ -488,6 +488,9 @@ export interface PedidoCompraRow {
   observacao: string | null
   local_entrega: string | null
   motivo_cancelamento: string | null
+  // SPEC-263 C
+  valor_negociado: number | null
+  valor_tabela: number | null
 }
 
 export async function getPedidosCompra(searchTerm?: string): Promise<PedidoCompraRow[]> {
@@ -595,7 +598,9 @@ export async function getItensDoPedido(pedidoId: string): Promise<ItemDoPedido[]
 }
 
 export interface EditarPedidoItem {
-  pedido_item_id: string
+  // SPEC-263 B: item NOVO = produto_id e nenhum pedido_item_id.
+  pedido_item_id?: string
+  produto_id?: string
   quantidade?: number
   custo_unitario?: number
   custo_liquido?: number | null
@@ -614,6 +619,8 @@ export interface EditarPedidoInput {
   desconto_percentual: number | null
   empresa_id: string | null
   local_entrega: string | null
+  // SPEC-263 C: valor final combinado com o fornecedor; fixa o total do pedido (o desconto % deixa de valer).
+  valor_negociado?: number | null
 }
 
 // SPEC-222 D2: pedido aprovado (sem entrada de nota nem parcela paga) volta para "Aguardando aprovar"
@@ -653,6 +660,7 @@ export async function editarPedidoCompra(
     p_desconto_percentual: input.desconto_percentual || null,
     p_empresa_id: input.empresa_id || null,
     p_local_entrega: input.local_entrega?.trim() || null,
+    ...(input.valor_negociado ? { p_valor_negociado: input.valor_negociado } : {}),
   })
   if (error) throw error
   return data

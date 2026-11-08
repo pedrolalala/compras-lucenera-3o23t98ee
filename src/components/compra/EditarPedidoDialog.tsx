@@ -26,13 +26,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Loader2, Pencil } from 'lucide-react'
+import { Loader2, Pencil, Plus, Search } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { buscarProdutosParaPedido, type EstoqueProdutoRow } from '@/services/estoque-produtos'
 import {
+  arredondarParaCaixa,
   editarPedidoCompra,
+  fechaCaixa,
   getEmpresas,
   getItensDoPedido,
+  getItensPorCaixa,
+  getProdutoImpostos,
   type Empresa,
   type EditarPedidoItem,
   type PedidoCompraRow,
@@ -43,6 +48,7 @@ import {
   brl,
   calcularCustoItem,
   lerNumero,
+  percentualParaCampo,
 } from '@/components/compra/custo-compra'
 import { CondicaoPagamentoCampo } from '@/components/compra/CondicaoPagamentoCampo'
 import { useArrastavel } from '@/components/compra/use-arrastavel'
@@ -71,6 +77,23 @@ interface LinhaEdicao {
   ipiPerc: string
   outrasPerc: string
   remover: boolean
+  // SPEC-263 B: peça incluída agora (não existe ainda no pedido).
+  nova?: boolean
+  custoBase?: string
+  custoManual?: boolean
+  descontoCaixa?: number
+  itensPorCaixa?: number
+}
+
+// SPEC-240 C: com desconto de caixa fechada o custo vem com o desconto enquanto a quantidade fecha caixa.
+function comDescontoCaixa(l: LinhaEdicao): LinhaEdicao {
+  if (l.custoManual || !((l.descontoCaixa ?? 0) > 0)) return l
+  const base = parseFloat(l.custoBase ?? '')
+  if (!(base > 0)) return l
+  const custo = fechaCaixa(lerNumero(l.quantidade), l.itensPorCaixa ?? 0)
+    ? Math.round(base * (1 - (l.descontoCaixa ?? 0) / 100) * 10000) / 10000
+    : base
+  return { ...l, custoLiquido: String(custo) }
 }
 
 function distribuir(partes: ParteLinha[], total: number): { id: string; quantidade: number }[] {
@@ -116,9 +139,35 @@ export function EditarPedidoDialog({
   const [condicoes, setCondicoes] = useState('')
   const [localEntrega, setLocalEntrega] = useState('')
   const [observacao, setObservacao] = useState('')
+  // SPEC-263 C: valor final negociado (R$) — vazio = vale o desconto %
+  const [valorNegociado, setValorNegociado] = useState('')
+  // SPEC-263 B: busca de peça para incluir
+  const [busca, setBusca] = useState('')
+  const [buscando, setBuscando] = useState(false)
+  const [resultados, setResultados] = useState<EstoqueProdutoRow[]>([])
+
+  useEffect(() => {
+    if (!busca.trim()) {
+      setResultados([])
+      return
+    }
+    const t = setTimeout(async () => {
+      setBuscando(true)
+      try {
+        setResultados((await buscarProdutosParaPedido(busca, 8)) ?? [])
+      } catch (err: any) {
+        toast({ title: 'Erro na busca', description: err?.message, variant: 'destructive' })
+      } finally {
+        setBuscando(false)
+      }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [busca, toast])
 
   useEffect(() => {
     if (!pedido) return
+    setBusca('')
+    setValorNegociado(pedido.valor_negociado ? String(pedido.valor_negociado).replace('.', ',') : '')
     setEmpresaId(pedido.empresa_id ?? '')
     setDesconto(pedido.desconto_percentual ? String(pedido.desconto_percentual) : '')
     setDataPrevista(pedido.data_prevista_entrega ?? '')
@@ -164,7 +213,59 @@ export function EditarPedidoDialog({
   }, [pedido, toast])
 
   function mudar(id: string, campo: keyof LinhaEdicao, valor: string | boolean) {
-    setLinhas((prev) => prev.map((l) => (l.id === id ? { ...l, [campo]: valor } : l)))
+    setLinhas((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l
+        const nova = { ...l, [campo]: valor } as LinhaEdicao
+        if (!l.nova) return nova
+        if (campo === 'custoLiquido') return { ...nova, custoManual: true }
+        if (campo === 'quantidade') return comDescontoCaixa(nova)
+        return nova
+      }),
+    )
+  }
+
+  // SPEC-263 B: inclui uma peça nova no pedido (custo, ST, IPI e caixa fechada vêm do cadastro).
+  async function incluirPeca(p: EstoqueProdutoRow) {
+    if (!pedido) return
+    if (linhas.some((l) => l.id === p.produto_id)) {
+      toast({
+        title: 'Essa peça já está no pedido',
+        description: 'Altere a quantidade da linha que já existe.',
+      })
+      return
+    }
+    setBusca('')
+    setResultados([])
+    try {
+      const [dados, caixas] = await Promise.all([
+        getProdutoImpostos(p.produto_id, pedido.fornecedor_id).catch(() => null),
+        getItensPorCaixa([p.produto_id]).catch(() => new Map<string, number>()),
+      ])
+      const caixa = caixas.get(p.produto_id) ?? 0
+      const custo = dados?.custoUnitario ?? 0
+      const base = custo > 0 ? String(custo) : ''
+      const linha = comDescontoCaixa({
+        id: p.produto_id,
+        partes: [],
+        produto: p.produto,
+        codigo: p.produto_codigo != null ? String(p.produto_codigo) : null,
+        quantidade: String(arredondarParaCaixa(1, caixa)),
+        custoLiquido: base,
+        stPerc: percentualParaCampo(dados?.porcStPerc),
+        ipiPerc: percentualParaCampo(dados?.ipiEntradaPerc),
+        outrasPerc: percentualParaCampo(dados?.despesasPerc),
+        remover: false,
+        nova: true,
+        custoBase: base,
+        custoManual: false,
+        descontoCaixa: dados?.descontoCaixaPerc ?? 0,
+        itensPorCaixa: caixa,
+      })
+      setLinhas((prev) => [...prev, linha])
+    } catch (err: any) {
+      toast({ title: 'Não foi possível incluir a peça', description: err?.message, variant: 'destructive' })
+    }
   }
 
   const calculadas = linhas.map((l) => {
@@ -174,10 +275,24 @@ export function EditarPedidoDialog({
   const ativas = calculadas.filter((l) => !l.remover)
   const totalProdutos = ativas.reduce((s, l) => s + l.qtd * l.custo, 0)
   const totalComImpostos = ativas.reduce((s, l) => s + l.qtd * l.c.total, 0)
-  const descontoNum = Math.min(100, Math.max(0, lerNumero(desconto)))
+  // SPEC-263 C: com valor negociado, o total é esse valor e o desconto % é só o equivalente
+  const negociadoNum = lerNumero(valorNegociado)
+  const negociadoAtivo = negociadoNum > 0
+  const negociadoAcimaDoTotal =
+    negociadoAtivo && negociadoNum > Math.round(totalComImpostos * 100) / 100 + 0.004
+  const descontoManual = Math.min(100, Math.max(0, lerNumero(desconto)))
+  const descontoNum =
+    negociadoAtivo && totalComImpostos > 0 && !negociadoAcimaDoTotal
+      ? Math.round((1 - negociadoNum / totalComImpostos) * 10000) / 100
+      : negociadoAtivo
+        ? 0
+        : descontoManual
   // SPEC-222 F8: condição de pagamento obrigatória
   const valido =
-    ativas.length > 0 && ativas.every((l) => l.qtd > 0 && l.c.total > 0) && !!condicoes.trim()
+    ativas.length > 0 &&
+    ativas.every((l) => l.qtd > 0 && l.c.total > 0) &&
+    !!condicoes.trim() &&
+    !negociadoAcimaDoTotal
 
   async function salvar() {
     if (!pedido || !valido) return
@@ -186,7 +301,21 @@ export function EditarPedidoDialog({
       const r = await editarPedidoCompra({
         pedido_id: pedido.id,
         itens: calculadas.flatMap((l): EditarPedidoItem[] =>
-          l.remover
+          l.nova
+            ? l.remover
+              ? []
+              : [
+                  {
+                    produto_id: l.id,
+                    quantidade: l.qtd,
+                    custo_unitario: l.c.total,
+                    custo_liquido: l.custo || null,
+                    valor_ipi: l.c.ipi || null,
+                    valor_st: l.c.st || null,
+                    valor_outras_despesas: l.c.outras || null,
+                  },
+                ]
+            : l.remover
             ? l.partes.map((p) => ({ pedido_item_id: p.id, remover: true }))
             : distribuir(l.partes, l.qtd).map((p) =>
                 p.quantidade <= 0
@@ -205,7 +334,8 @@ export function EditarPedidoDialog({
         data_prevista_entrega: dataPrevista || null,
         condicoes_pagamento: condicoes,
         observacao,
-        desconto_percentual: descontoNum || null,
+        desconto_percentual: negociadoAtivo ? null : descontoManual || null,
+        valor_negociado: negociadoAtivo ? negociadoNum : null,
         empresa_id: empresaId || null,
         local_entrega: localEntrega,
       })
@@ -252,6 +382,54 @@ export function EditarPedidoDialog({
           </div>
         ) : (
           <div className="space-y-5 pt-2">
+            {/* SPEC-263 B: incluir peça nova no pedido */}
+            <div className="relative max-w-xl">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Incluir peça neste pedido: buscar por nome, código, referência ou marca..."
+                className="pl-9 h-9 text-sm"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+              {busca.trim() && (
+                <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-64">
+                  {buscando ? (
+                    <div className="p-3 flex justify-center">
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                    </div>
+                  ) : resultados.length === 0 ? (
+                    <p className="p-3 text-sm text-slate-400">Nenhuma peça encontrada.</p>
+                  ) : (
+                    resultados.map((r) => {
+                      const jaNoPedido = linhas.some((l) => l.id === r.produto_id)
+                      return (
+                        <button
+                          key={r.produto_id}
+                          type="button"
+                          disabled={jaNoPedido}
+                          className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0 disabled:opacity-50"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            incluirPeca(r)
+                          }}
+                        >
+                          <span className="min-w-0">
+                            <span className="font-mono text-xs text-slate-400 mr-2">{r.produto_codigo}</span>
+                            <span className="line-clamp-1">{r.produto}</span>
+                            {r.marca && <span className="text-[11px] text-slate-400 ml-2">{r.marca}</span>}
+                          </span>
+                          <span className="shrink-0 text-xs text-emerald-700 flex items-center gap-1">
+                            <Plus className="w-3.5 h-3.5" />
+                            {jaNoPedido ? 'No pedido' : 'Incluir'}
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="border border-slate-200 rounded-lg overflow-x-auto">
               <Table>
                 <TableHeader className="bg-slate-50">
@@ -274,6 +452,11 @@ export function EditarPedidoDialog({
                         <p className="font-medium text-slate-800 line-clamp-1">{l.produto}</p>
                         {l.codigo && (
                           <span className="font-mono text-xs text-slate-400">{l.codigo}</span>
+                        )}
+                        {l.nova && (
+                          <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            Nova
+                          </span>
                         )}
                         {/* SPEC-213: de quais L vem a quantidade somada */}
                         {l.partes.some((p) => p.ls.length > 0) && (
@@ -361,12 +544,43 @@ export function EditarPedidoDialog({
                     inputMode="decimal"
                     placeholder="0"
                     className="h-8 w-24 text-right text-sm bg-white"
-                    value={desconto}
+                    value={negociadoAtivo ? String(descontoNum).replace('.', ',') : desconto}
+                    disabled={negociadoAtivo}
                     onChange={(e) => setDesconto(e.target.value)}
                   />
                 </>
               }
             />
+
+            {/* SPEC-263 C: valor final combinado com o fornecedor */}
+            <div className="ml-auto w-full sm:w-[420px] rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-3 text-sm space-y-1.5">
+              <div className="flex items-center justify-between gap-4">
+                <Label className="text-slate-700 font-medium">Valor final negociado (R$)</Label>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="opcional"
+                  className="h-8 w-36 text-right text-sm bg-white"
+                  value={valorNegociado}
+                  onChange={(e) => setValorNegociado(e.target.value)}
+                />
+              </div>
+              {negociadoAcimaDoTotal ? (
+                <p className="text-xs text-red-600">
+                  O valor negociado não pode ser maior que o total do pedido ({brl(totalComImpostos)}).
+                </p>
+              ) : negociadoAtivo ? (
+                <p className="text-xs text-emerald-700">
+                  Total do pedido fica em <b>{brl(negociadoNum)}</b> — desconto de {String(descontoNum).replace('.', ',')}%
+                  (economia de {brl(totalComImpostos - negociadoNum)}). Apague o campo para voltar ao desconto em %.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Preencha quando o fornecedor fechou um valor final com desconto: o total do pedido passa a ser
+                  exatamente esse valor.
+                </p>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
