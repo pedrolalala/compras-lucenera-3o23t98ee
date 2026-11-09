@@ -305,15 +305,10 @@ export interface ApropriacaoCompra {
 
 // Apropriações permitidas na entrada da nota: compra e revenda, industrialização e garantia.
 export async function listarApropriacoesCompra(): Promise<ApropriacaoCompra[]> {
-  const { data, error } = await (supabase as any)
-    .from('plano_de_contas')
-    .select('id, codigo_connect, nome')
-    .in('codigo_connect', [2050001, 2050010, 2050003])
+  // plano_de_contas só é legível pelo Financeiro; a função devolve apenas essas 3 contas (migration 316).
+  const { data, error } = await (supabase as any).rpc('compras_apropriacoes_nota')
   if (error) throw error
-  const ordem = [2050001, 2050010, 2050003]
-  return ((data ?? []) as ApropriacaoCompra[]).sort(
-    (a, b) => ordem.indexOf(a.codigo_connect) - ordem.indexOf(b.codigo_connect),
-  )
+  return (data ?? []) as ApropriacaoCompra[]
 }
 
 // SPEC-215/220: quantidades + nota + parcelas + antecipação + vínculo com o cliente numa transação só.
