@@ -293,6 +293,27 @@ export interface RegistrarEntradaNotaInput {
   valor_despesas_acessorias: number | null
   /** O que chegou de cada peça vai da entrega futura para a reserva destes L. */
   vinculos: Array<{ produto_id: string; projeto_item_id: string; quantidade: number }>
+  /** Apropriação (plano de contas) da nota; vazio = COMPRAS - REVENDA. */
+  plano_contas_id?: string | null
+}
+
+export interface ApropriacaoCompra {
+  id: string
+  codigo_connect: number
+  nome: string
+}
+
+// Apropriações permitidas na entrada da nota: compra e revenda, industrialização e garantia.
+export async function listarApropriacoesCompra(): Promise<ApropriacaoCompra[]> {
+  const { data, error } = await (supabase as any)
+    .from('plano_de_contas')
+    .select('id, codigo_connect, nome')
+    .in('codigo_connect', [2050001, 2050010, 2050003])
+  if (error) throw error
+  const ordem = [2050001, 2050010, 2050003]
+  return ((data ?? []) as ApropriacaoCompra[]).sort(
+    (a, b) => ordem.indexOf(a.codigo_connect) - ordem.indexOf(b.codigo_connect),
+  )
 }
 
 // SPEC-215/220: quantidades + nota + parcelas + antecipação + vínculo com o cliente numa transação só.
@@ -324,6 +345,7 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
       data_entrada: input.data_entrada,
       valor_desconto: input.valor_desconto,
       valor_despesas_acessorias: input.valor_despesas_acessorias,
+      plano_contas_id: input.plano_contas_id || null,
     },
     p_parcelas: input.parcelas,
     p_antecipacoes: input.antecipacoes,

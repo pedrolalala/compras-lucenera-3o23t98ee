@@ -57,6 +57,8 @@ import {
   podeVincularHerancaConnect,
   getNotasFiscaisCompra,
   registrarEntradaNotaCompra,
+  listarApropriacoesCompra,
+  type ApropriacaoCompra,
   type AntecipacaoEntrada,
   type EntregaFutura,
   type PedidoParaEntrada,
@@ -191,6 +193,17 @@ export default function EntradaNotaFiscal() {
   const [ipiNota, setIpiNota] = useState('')
   const [ipiEditado, setIpiEditado] = useState(false)
   const [despesasAcessorias, setDespesasAcessorias] = useState('')
+  // Apropriação da nota: compra e revenda (padrão), industrialização ou garantia.
+  const [apropriacoes, setApropriacoes] = useState<ApropriacaoCompra[]>([])
+  const [apropriacaoId, setApropriacaoId] = useState('')
+  useEffect(() => {
+    listarApropriacoesCompra()
+      .then((l) => {
+        setApropriacoes(l)
+        setApropriacaoId((atual) => atual || l.find((a) => a.codigo_connect === 2050001)?.id || '')
+      })
+      .catch(() => setApropriacoes([]))
+  }, [])
   const [entregas, setEntregas] = useState<EntregaFutura[]>([])
   const [vinculos, setVinculos] = useState<Record<string, Record<string, string>>>({})
   const [vinculosEditados, setVinculosEditados] = useState<Record<string, boolean>>({})
@@ -611,6 +624,7 @@ export default function EntradaNotaFiscal() {
           data_entrada: dataEntrada || null,
           valor_desconto: lerValor(desconto) || null,
           valor_despesas_acessorias: lerValor(despesasAcessorias) || null,
+          plano_contas_id: apropriacaoId || null,
           vinculos: Object.entries(vinculos).flatMap(([produto_id, porL]) =>
             Object.entries(porL)
               .map(([projeto_item_id, q]) => ({ produto_id, projeto_item_id, quantidade: lerQtd(q) }))
@@ -1242,10 +1256,24 @@ export default function EntradaNotaFiscal() {
                       </p>
                     </div>
                   </div>
-                  <p className="mt-2 text-slate-500">
-                    Apropriação: <strong>COMPRAS - REVENDA</strong> · entra no setor <strong>Estoque Geral</strong> ·
-                    "outras despesas" do pedido (ICMS recolhido depois) não entram na nota.
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-slate-500">
+                    <Label className="text-xs">Apropriação</Label>
+                    <select
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                      value={apropriacaoId}
+                      onChange={(e) => setApropriacaoId(e.target.value)}
+                    >
+                      {apropriacoes.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.codigo_connect === 2050001 ? 'COMPRAS - REVENDA' : a.nome}
+                        </option>
+                      ))}
+                    </select>
+                    <span>
+                      · entra no setor <strong>Estoque Geral</strong> · "outras despesas" do pedido (ICMS recolhido
+                      depois) não entram na nota.
+                    </span>
+                  </div>
                 </div>
               )}
               <div className="space-y-2 sm:col-span-4">
