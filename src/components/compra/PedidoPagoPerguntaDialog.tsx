@@ -122,7 +122,7 @@ export function PedidoPagoPerguntaDialog({ pedido, onRespondido, onAdiar }: Prop
         if (!o && !salvando && pedido) onAdiar(pedido.id)
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>As parcelas deste pedido já foram pagas?</DialogTitle>
           <DialogDescription>
@@ -183,7 +183,7 @@ export function PedidoPagoPerguntaDialog({ pedido, onRespondido, onAdiar }: Prop
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="flex-wrap gap-2 sm:gap-2 sm:space-x-0">
           <Button variant="ghost" disabled={salvando} onClick={() => pedido && onAdiar(pedido.id)}>
             Responder depois
           </Button>
