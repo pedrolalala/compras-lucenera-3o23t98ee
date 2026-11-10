@@ -22,6 +22,8 @@ export interface EntregaResolvida {
 
 export interface ComprasConfig {
   whatsapp: string | null
+  // SPEC-272: assinatura do e-mail ao fornecedor (compras_config.assinatura_email); vazia = padrão LUCENERA
+  assinatura?: string | null
   padrao: { nome: string | null; endereco: EnderecoEntrega } | null
 }
 

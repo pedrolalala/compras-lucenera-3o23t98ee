@@ -100,7 +100,7 @@ export function EnviarFornecedorDialog({
         setEmail(emails.email)
         setEmailAlt(emails.email_alternativo)
         setAssunto(assuntoPadrao(pedido.numero, pedido.empresa_nome))
-        setTexto(textoPadrao(pedido.numero, pedido.empresa_nome, nome, cfg?.whatsapp))
+        setTexto(textoPadrao(pedido.numero, pedido.empresa_nome, nome, cfg?.whatsapp, cfg?.assinatura))
       })
       .catch((err: any) => {
         toast({

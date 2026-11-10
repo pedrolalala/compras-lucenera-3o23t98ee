@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { apagarTodosRascunhosPedido, chaveModal, gravarRascunho, lerRascunho } from '@/lib/rascunho-pedido'
 import { semPrefixo } from '@/lib/numeros'
 import { cn } from '@/lib/utils'
 import {
@@ -147,6 +148,14 @@ export function ModalGerarCompraItemOrcamento({
   const [prazoMedio, setPrazoMedio] = useState<{ dias: number; pedidos: number } | null>(null)
   const [salvandoObs, setSalvandoObs] = useState<string | null>(null)
   const [podeEditarCaixa, setPodeEditarCaixa] = useState(false)
+  // SPEC-271: edições feitas à mão (quantidade, custo, ST/IPI/outras, "Tirar") e o cabeçalho do pedido
+  // ficam guardados no navegador; fechar o modal ou sair da tela não perde mais o que foi digitado.
+  const editadasRef = useRef<Set<string>>(new Set())
+  const rascunhoRef = useRef<{ linhas: Record<string, Partial<LinhaItem>>; cab: Record<string, string> }>({
+    linhas: {},
+    cab: {},
+  })
+  const ignorarCabRef = useRef(false)
 
   // SPEC-209 A4: já vem com a empresa da venda quando todas as linhas são da mesma empresa.
   const empresaDasVendas = useMemo(() => {
@@ -156,10 +165,21 @@ export function ModalGerarCompraItemOrcamento({
 
   useEffect(() => {
     if (!open) return
+    const salvo = lerRascunho<{ linhas: Record<string, Partial<LinhaItem>>; cab: Record<string, string> }>(
+      chaveModal(fornecedorId),
+    )
+    rascunhoRef.current = { linhas: salvo?.linhas ?? {}, cab: salvo?.cab ?? {} }
+    editadasRef.current = new Set(Object.keys(rascunhoRef.current.linhas))
+    ignorarCabRef.current = true
+    const sobrepor = (l: LinhaItem): LinhaItem => {
+      const e = rascunhoRef.current.linhas[l.chave]
+      return e ? { ...l, ...e } : l
+    }
+    const cabSalvo = rascunhoRef.current.cab
     const porPeca = new Map<string, LinhaCarrinho[]>()
     for (const it of itens) porPeca.set(it.produto_id, [...(porPeca.get(it.produto_id) ?? []), it])
     setLinhas(
-      Array.from(porPeca.values()).map((lista) => ({
+      Array.from(porPeca.values()).map((lista) => sobrepor({
         chave: lista[0].produto_id,
         produto_id: lista[0].produto_id,
         produto: lista[0].produto,
@@ -179,14 +199,14 @@ export function ModalGerarCompraItemOrcamento({
         remover: false,
       })),
     )
-    setNumero('')
-    setDataPrevista('')
-    setCondicoesPagamento('')
-    setObservacao('')
-    setEmpresaId(empresaDasVendas)
-    setPerfil('')
-    setDescontoPercentual('')
-    setLocalEntrega('')
+    setNumero(cabSalvo.numero ?? '')
+    setDataPrevista(cabSalvo.dataPrevista ?? '')
+    setCondicoesPagamento(cabSalvo.condicoesPagamento ?? '')
+    setObservacao(cabSalvo.observacao ?? '')
+    setEmpresaId(cabSalvo.empresaId ?? empresaDasVendas)
+    setPerfil(cabSalvo.perfil ?? '')
+    setDescontoPercentual(cabSalvo.descontoPercentual ?? '')
+    setLocalEntrega(cabSalvo.localEntrega ?? '')
     setPrazoMedio(null)
     getEmpresas()
       .then(setEmpresas)
@@ -207,6 +227,10 @@ export function ModalGerarCompraItemOrcamento({
             const caixa = caixas.get(l.produto_id)
             if (!caixa) return l
             const qtd = parseFloat(l.quantidade) || 0
+            // SPEC-271: quantidade que a pessoa digitou não é re-arredondada ao reabrir
+            if (editadasRef.current.has(l.chave) && rascunhoRef.current.linhas[l.chave]?.quantidade != null) {
+              return aplicarDescontoCaixa(sobrepor({ ...l, itensPorCaixa: caixa }))
+            }
             return aplicarDescontoCaixa({
               ...l,
               itensPorCaixa: caixa,
@@ -230,16 +254,18 @@ export function ModalGerarCompraItemOrcamento({
             if (!dados) return l
             const custoLiquido = dados.custoUnitario ?? (parseFloat(l.custoLiquido) || 0)
             const custo = custoLiquido > 0 ? String(custoLiquido) : l.custoLiquido
-            return aplicarDescontoCaixa({
-              ...l,
-              custoLiquido: custo,
-              custoBase: custo,
-              descontoCaixa: dados.descontoCaixaPerc,
-              stPerc: percentualParaCampo(dados.porcStPerc),
-              ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
-              outrasPerc: percentualParaCampo(dados.despesasPerc),
-              observacaoFornecedor: dados.observacaoFornecedor,
-            })
+            return sobrepor(
+              aplicarDescontoCaixa({
+                ...l,
+                custoLiquido: custo,
+                custoBase: custo,
+                descontoCaixa: dados.descontoCaixaPerc,
+                stPerc: percentualParaCampo(dados.porcStPerc),
+                ipiPerc: percentualParaCampo(dados.ipiEntradaPerc),
+                outrasPerc: percentualParaCampo(dados.despesasPerc),
+                observacaoFornecedor: dados.observacaoFornecedor,
+              }),
+            )
           }),
         )
       })
@@ -249,6 +275,7 @@ export function ModalGerarCompraItemOrcamento({
   }, [open, itens, fornecedorId, empresaDasVendas])
 
   function alternarRemover(chave: string, remover: boolean) {
+    editadasRef.current.add(chave)
     setLinhas((prev) => prev.map((l) => (l.chave === chave ? { ...l, remover } : l)))
   }
 
@@ -257,6 +284,7 @@ export function ModalGerarCompraItemOrcamento({
     campo: 'quantidade' | 'custoLiquido' | 'stPerc' | 'ipiPerc' | 'outrasPerc',
     valor: string,
   ) {
+    editadasRef.current.add(chave)
     setLinhas((prev) =>
       prev.map((l) => {
         if (l.chave !== chave) return l
@@ -267,6 +295,46 @@ export function ModalGerarCompraItemOrcamento({
       }),
     )
   }
+
+  // SPEC-271: grava o rascunho a cada edição (só das linhas mexidas à mão).
+  useEffect(() => {
+    if (!open) return
+    let mudou = false
+    for (const l of linhas) {
+      if (!editadasRef.current.has(l.chave)) continue
+      rascunhoRef.current.linhas[l.chave] = {
+        quantidade: l.quantidade,
+        custoLiquido: l.custoLiquido,
+        custoBase: l.custoBase,
+        custoManual: l.custoManual,
+        stPerc: l.stPerc,
+        ipiPerc: l.ipiPerc,
+        outrasPerc: l.outrasPerc,
+        remover: l.remover,
+      }
+      mudou = true
+    }
+    if (mudou) gravarRascunho(chaveModal(fornecedorId), rascunhoRef.current)
+  }, [open, linhas, fornecedorId])
+
+  useEffect(() => {
+    if (!open) return
+    if (ignorarCabRef.current) {
+      ignorarCabRef.current = false
+      return
+    }
+    rascunhoRef.current.cab = {
+      numero,
+      dataPrevista,
+      condicoesPagamento,
+      observacao,
+      empresaId,
+      perfil,
+      descontoPercentual,
+      localEntrega,
+    }
+    gravarRascunho(chaveModal(fornecedorId), rascunhoRef.current)
+  }, [open, fornecedorId, numero, dataPrevista, condicoesPagamento, observacao, empresaId, perfil, descontoPercentual, localEntrega])
 
   async function salvarObservacao(produtoId: string, obs: string, itensPorCaixa: string, descontoCaixa: string) {
     const linha = linhas.find((l) => l.produto_id === produtoId)
@@ -433,6 +501,7 @@ export function ModalGerarCompraItemOrcamento({
           variant: avisoParcelas ? 'destructive' : undefined,
         })
       }
+      apagarTodosRascunhosPedido()
       onSuccess()
     } catch (err: any) {
       toast({

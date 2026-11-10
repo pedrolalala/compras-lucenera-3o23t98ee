@@ -13,6 +13,8 @@ export function textoPadrao(
   remetente: string | null,
   // SPEC-236: WhatsApp do Compras vem de compras_config
   whatsappCompras?: string | null,
+  // SPEC-272: assinatura configurada; sem ela, remetente + LUCENERA + empresa do pedido
+  assinatura?: string | null,
 ) {
   return [
     'Prezados,',
@@ -26,8 +28,13 @@ export function textoPadrao(
       : []),
     '',
     'Atenciosamente,',
-    ...(remetente ? [remetente] : []),
-    ...(empresaNome ? [empresaNome] : []),
+    ...(assinatura?.trim()
+      ? [...(remetente ? [remetente] : []), assinatura.trim()]
+      : [
+          ...(remetente ? [remetente] : []),
+          'LUCENERA',
+          ...(empresaNome && empresaNome.toUpperCase() !== 'LUCENERA' ? [empresaNome] : []),
+        ]),
   ].join('\n')
 }
 

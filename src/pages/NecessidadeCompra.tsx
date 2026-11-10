@@ -1,4 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import {
+  CHAVE_CARRINHO,
+  apagarTodosRascunhosPedido,
+  gravarRascunho,
+  lerRascunho,
+} from '@/lib/rascunho-pedido'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -76,7 +82,14 @@ export default function NecessidadeCompra() {
   const [selectedMarca, setSelectedMarca] = useState<string>('all')
   // SPEC-209 A1/A2/A6: pedido em montagem ("carrinho") — L de vários produtos e vendas, ou o
   // produto inteiro quando não tem L. Não se perde ao abrir/fechar produtos. Um fornecedor só.
-  const [carrinho, setCarrinho] = useState<Record<string, LinhaCarrinho>>({})
+  // SPEC-271: o carrinho sobrevive a trocar de aba/sair da tela (rascunho no navegador, 24 h).
+  const [carrinho, setCarrinho] = useState<Record<string, LinhaCarrinho>>(
+    () => lerRascunho<Record<string, LinhaCarrinho>>(CHAVE_CARRINHO) ?? {},
+  )
+  useEffect(() => {
+    if (Object.keys(carrinho).length === 0) apagarTodosRascunhosPedido()
+    else gravarRascunho(CHAVE_CARRINHO, carrinho)
+  }, [carrinho])
   const [fecharPedidoOpen, setFecharPedidoOpen] = useState(false)
   // SPEC-209 A3: L com saldo a comprar (com a empresa da venda) e filtro de empresa
   const [itensOrc, setItensOrc] = useState<NecessidadeCompraItemRow[]>([])
@@ -542,7 +555,7 @@ export default function NecessidadeCompra() {
                               </p>
                               <p className="text-sm mt-1">
                                 {searchInput
-                                  ? 'Tente ajustar a busca.'
+                                  ? 'Esta tela só lista peça com necessidade de compra (vendida sem estoque). Peça nova ou sem venda: compre pelo Pedido avulso.'
                                   : 'Todos os itens vendidos têm cobertura de estoque.'}
                               </p>
                             </div>

@@ -25,13 +25,14 @@ export async function getComprasConfig(): Promise<ComprasConfig> {
   const { data, error } = await (supabase as any)
     .from('compras_config')
     .select(
-      'whatsapp_compras, empresa:empresas(razao_social, nome, logradouro, numero, complemento, bairro, cidade, estado, cep)',
+      'whatsapp_compras, assinatura_email, empresa:empresas(razao_social, nome, logradouro, numero, complemento, bairro, cidade, estado, cep)',
     )
     .maybeSingle()
   if (error) throw error
   const e = data?.empresa
   return {
     whatsapp: data?.whatsapp_compras || null,
+    assinatura: data?.assinatura_email || null,
     padrao: e
       ? {
           nome: e.razao_social || e.nome || null,
