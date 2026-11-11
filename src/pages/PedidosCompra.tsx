@@ -318,7 +318,7 @@ export default function PedidosCompra() {
   }
 
   return (
-    <div className="flex flex-col space-y-4 w-full pb-20 xl:h-[calc(100vh-130px)] animate-fade-in-up">
+    <div className="flex flex-col space-y-4 w-full pb-20 xl:min-h-[calc(100vh-130px)] animate-fade-in-up">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
@@ -408,7 +408,7 @@ export default function PedidosCompra() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-hidden flex flex-col min-h-0">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm shrink-0 overflow-hidden flex flex-col">
         <div className="flex flex-wrap gap-1 px-3 pt-3 shrink-0">
           {ABAS.map((a) => (
             <button
@@ -457,7 +457,7 @@ export default function PedidosCompra() {
           {loading ? 'Carregando...' : `${rowsAba.length} pedido(s)`}
         </div>
 
-        <div className="overflow-auto flex-1">
+        <div className="overflow-auto min-h-[420px] max-h-[calc(100vh-200px)]">
           <Table className="w-full table-fixed min-w-[1000px]">
             <TableHeader className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
               <TableRow className="h-11">
