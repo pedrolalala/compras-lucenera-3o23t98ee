@@ -56,6 +56,8 @@ import {
   aprovarPedidoCompra,
   voltarPedidoParaEdicao,
   atualizarPrevisaoPedido,
+  podeEditarNumeroPedido,
+  renomearNumeroPedidoCompra,
   getResumoParcialPedidos,
   type ResumoParcialPedido,
   STATUS_PEDIDO_COMPRA,
@@ -115,6 +117,13 @@ export default function PedidosCompra() {
   const [novaPrevisao, setNovaPrevisao] = useState('')
   const [motivoPrevisao, setMotivoPrevisao] = useState('')
   const [salvandoPrevisao, setSalvandoPrevisao] = useState(false)
+  // SPEC-293: edição temporária do número do pedido (permissão vem do banco)
+  const [podeEditarNumero, setPodeEditarNumero] = useState(false)
+  const [pedidoParaRenumerar, setPedidoParaRenumerar] = useState<PedidoCompraRow | null>(null)
+  const [novoNumero, setNovoNumero] = useState('')
+  const [motivoNumero, setMotivoNumero] = useState('')
+  const [erroNumero, setErroNumero] = useState<string | null>(null)
+  const [renumerando, setRenumerando] = useState(false)
   const [pdfId, setPdfId] = useState<string | null>(null)
   const [pedidoParaEnviar, setPedidoParaEnviar] = useState<PedidoCompraRow | null>(null)
   const [importarConnectAberto, setImportarConnectAberto] = useState(false)
@@ -303,6 +312,30 @@ export default function PedidosCompra() {
       })
     } finally {
       setCancelando(false)
+    }
+  }
+
+  useEffect(() => {
+    podeEditarNumeroPedido().then(setPodeEditarNumero)
+  }, [])
+
+  async function handleConfirmRenumerar() {
+    if (!pedidoParaRenumerar || !novoNumero.trim() || !motivoNumero.trim()) return
+    setRenumerando(true)
+    setErroNumero(null)
+    try {
+      const novo = await renomearNumeroPedidoCompra(pedidoParaRenumerar.id, novoNumero, motivoNumero)
+      toast({
+        title: `Número do pedido alterado para ${novo}`,
+        description: 'Contas a Pagar já mostra o número novo. PDFs e e-mails já enviados continuam com o número antigo.',
+      })
+      setPedidoParaRenumerar(null)
+      await loadData()
+    } catch (err: any) {
+      // erros claros vêm da RPC (duplicado, vazio, sem permissão)
+      setErroNumero(err?.message ?? 'Não foi possível alterar o número. Tente novamente.')
+    } finally {
+      setRenumerando(false)
     }
   }
 
@@ -739,6 +772,24 @@ export default function PedidosCompra() {
                               Previsão
                             </Button>
                           )}
+                          {podeEditarNumero && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              title="Editar o número do pedido (temporário; fica registrado com o motivo)"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setNovoNumero(r.numero)
+                                setMotivoNumero('')
+                                setErroNumero(null)
+                                setPedidoParaRenumerar(r)
+                              }}
+                            >
+                              <Pencil className="w-3.5 h-3.5 mr-1" />
+                              Editar número
+                            </Button>
+                          )}
                           {r.status === 'aprovado' && (
                             <Button
                               size="sm"
@@ -804,6 +855,63 @@ export default function PedidosCompra() {
           loadData()
         }}
       />
+
+      <AlertDialog
+        open={pedidoParaRenumerar != null}
+        onOpenChange={(open) => {
+          if (!open && !renumerando) setPedidoParaRenumerar(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Editar o número do pedido</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirma a troca{' '}
+              <span className="font-mono font-semibold">{pedidoParaRenumerar?.numero}</span>
+              {' → '}
+              <span className="font-mono font-semibold">{novoNumero.trim() || '…'}</span>? O número novo aparece no Contas
+              a Pagar e nas telas do sistema. PDFs e e-mails já enviados ao fornecedor continuam com o número antigo.
+              A troca fica registrada com o motivo. Pedido da Connect renomeado continua protegido contra reimportação
+              duplicada (o número antigo fica guardado) e a observação do pedido mantém a origem Connect.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            placeholder="Novo número do pedido"
+            value={novoNumero}
+            maxLength={40}
+            onChange={(e) => {
+              setNovoNumero(e.target.value)
+              setErroNumero(null)
+            }}
+            disabled={renumerando}
+          />
+          <Textarea
+            placeholder="Motivo (obrigatório) — ex.: acerto para o número da Connect"
+            value={motivoNumero}
+            onChange={(e) => setMotivoNumero(e.target.value)}
+            disabled={renumerando}
+          />
+          {erroNumero && <p className="text-sm text-red-600">{erroNumero}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={renumerando}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmRenumerar()
+              }}
+              disabled={
+                renumerando ||
+                !novoNumero.trim() ||
+                novoNumero.trim() === pedidoParaRenumerar?.numero ||
+                !motivoNumero.trim()
+              }
+            >
+              {renumerando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Confirmar troca
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pedidoParaPrever != null}

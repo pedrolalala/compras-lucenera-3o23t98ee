@@ -657,6 +657,28 @@ export async function atualizarPrevisaoPedido(
   if (error) throw error
 }
 
+// SPEC-293: edição temporária do número do pedido. A permissão vem do banco (lista em compras_config + administradores,
+// com chave liga/desliga); aqui só se pergunta e se chama a RPC.
+export async function podeEditarNumeroPedido(): Promise<boolean> {
+  const { data, error } = await (supabase as any).rpc('pode_editar_numero_pedido_compra')
+  if (error) return false
+  return data === true
+}
+
+export async function renomearNumeroPedidoCompra(
+  pedidoId: string,
+  novoNumero: string,
+  motivo: string,
+): Promise<string> {
+  const { data, error } = await (supabase as any).rpc('renomear_numero_pedido_compra', {
+    p_pedido: pedidoId,
+    p_novo_numero: novoNumero,
+    p_motivo: motivo,
+  })
+  if (error) throw error
+  return data as string
+}
+
 export async function editarPedidoCompra(
   input: EditarPedidoInput,
 ): Promise<{ valor_total: number; parcelas_criadas: number }> {
