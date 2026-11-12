@@ -295,6 +295,8 @@ export interface RegistrarEntradaNotaInput {
   vinculos: Array<{ produto_id: string; projeto_item_id: string; quantidade: number }>
   /** Apropriação (plano de contas) da nota; vazio = COMPRAS - REVENDA. */
   plano_contas_id?: string | null
+  /** SPEC-289: "este pedido já foi pago" — o banco cria a antecipação do pedido e a vincula à nota (sem aprovação). */
+  pagamento?: { valor: number; data_pagamento: string; observacao: string | null } | null
 }
 
 export interface ApropriacaoCompra {
@@ -321,6 +323,10 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
   reservado: number
   /** SPEC-222: quanto entrou no estoque físico (Estoque Geral). */
   estoque_somado: number
+  /** SPEC-289: valor do pagamento antecipado criado por "já foi pago" (0 = nenhum / reaproveitou o existente). */
+  pagamento_criado: number
+  /** SPEC-289: quanto do pagamento ficou aplicado a esta nota. */
+  pagamento_aplicado: number
 }> {
   const arquivoUrl = input.arquivo
     ? await uploadArquivoNotaFiscalCompra(input.arquivo, input.pedido_id)
@@ -346,6 +352,7 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
     p_antecipacoes: input.antecipacoes,
     p_fornecedor_id: input.fornecedor_id,
     p_vinculos: input.vinculos,
+    p_pagamento: input.pagamento ?? null,
   })
   if (error) throw error
   return data

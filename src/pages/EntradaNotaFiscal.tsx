@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -74,6 +75,7 @@ import {
 import { traduzirStatusPedidoCompra } from '@/services/necessidade-compra'
 import {
   FinanceiroNotaEntrada,
+  type PagoNaEntrada,
   dividirParcelas,
   lerValor,
   type ParcelaNota,
@@ -182,6 +184,11 @@ export default function EntradaNotaFiscal() {
   const [parcelasEditadas, setParcelasEditadas] = useState(false)
   const [antecipacoes, setAntecipacoes] = useState<AntecipacaoEntrada[]>([])
   const [usar, setUsar] = useState<Record<string, string>>({})
+  // SPEC-289 B: "este pedido já foi pago" marcado na entrada (cria a antecipação e vincula à nota)
+  const PAGO_VAZIO = (): PagoNaEntrada => ({ ativo: false, valor: '', data: hoje(), obs: '' })
+  const [pago, setPago] = useState<PagoNaEntrada>(PAGO_VAZIO)
+  // SPEC-289 B4: a antecipação já ligada ao pedido vem marcada sozinha até a pessoa mexer nas marcações
+  const [usarEditado, setUsarEditado] = useState(false)
 
   // SPEC-220 (reunião Vinicius 21/10): valores por item, dados da nota, vínculo com o cliente e espelho.
   const [valoresPeca, setValoresPeca] = useState<Record<string, ValoresPeca>>({})
@@ -359,11 +366,10 @@ export default function EntradaNotaFiscal() {
       const result = await buscarPedidoPorNumero(numeroPedido.trim())
       if (result) {
         setPedido(result)
-        setChegou(
-          Object.fromEntries(
-            agruparPorPeca(result.itens).map((g) => [g.produto_id, String(g.falta)]),
-          ),
-        )
+        // SPEC-289 A1: nada vem marcado — quem confere diz o que chegou (caixa "Chegou" ou a quantidade).
+        setChegou(Object.fromEntries(agruparPorPeca(result.itens).map((g) => [g.produto_id, '0'])))
+        setPago(PAGO_VAZIO())
+        setUsarEditado(false)
         setValor(result.valor_total != null ? Number(result.valor_total).toFixed(2) : '')
         // SPEC-220: valores da nota já preenchidos do pedido (por peça; sem IPI/ST no valor unitário)
         setValoresPeca(
@@ -398,6 +404,8 @@ export default function EntradaNotaFiscal() {
   function limparFormulario() {
     setPedido(null)
     setChegou({})
+    setPago(PAGO_VAZIO())
+    setUsarEditado(false)
     setNumeroPedido('')
     setFornecedorSelecionado(null)
     setFornecedorBusca('')
@@ -520,10 +528,42 @@ export default function EntradaNotaFiscal() {
   const valorNota = modo === 'pedido' ? totalCalculado : lerValor(valor)
   const stNota = lerValor(valorSt)
   const usado = Object.values(usar).reduce((s, v) => s + lerValor(v), 0)
+  // SPEC-289 B4: pedido que já tem antecipação ligada (lançada pela Lana) usa essa; a opção "já foi pago" some
+  const ligadaAoPedido = antecipacoes.some((a) => !!pedido && a.pedido_numero === pedido.numero && a.saldo > 0.001)
+  const pagoAtivo = modo === 'pedido' && pago.ativo && !ligadaAoPedido
+  // SPEC-289 B4: pré-marca a antecipação ligada ao pedido com min(saldo, restante da nota); o valor continua editável
+  const chaveAutoUsar = JSON.stringify([
+    antecipacoes.filter((a) => !!pedido && a.pedido_numero === pedido.numero).map((a) => [a.id, a.saldo]),
+    r2(valorNota),
+    usarEditado,
+  ])
+  useEffect(() => {
+    if (modo !== 'pedido' || !pedido || usarEditado) return
+    let resta = Math.max(0, valorNota)
+    const auto: Record<string, string> = {}
+    for (const a of antecipacoes) {
+      if (a.pedido_numero !== pedido.numero || a.saldo <= 0.001) continue
+      const v = r2(Math.min(a.saldo, resta))
+      if (v > 0) {
+        auto[a.id] = v.toFixed(2)
+        resta = r2(resta - v)
+      }
+    }
+    setUsar((atual) => (JSON.stringify(atual) === JSON.stringify(auto) ? atual : auto))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveAutoUsar, modo, pedido])
+  const pagoValor = pagoAtivo ? r2(lerValor(pago.valor)) : 0
+  // pago a mais do que esta nota: o que sobra fica de saldo para as próximas notas do pedido
+  const pagoAplicado = r2(Math.min(pagoValor, Math.max(0, valorNota - usado)))
+  const usadoTotal = r2(usado + pagoAplicado)
+  const totalPedidoNum = pedido?.valor_total != null ? Number(pedido.valor_total) : 0
+  const pagoOk =
+    !pagoAtivo ||
+    (pagoValor > 0 && !!pago.data && pago.data <= hoje() && (totalPedidoNum <= 0 || pagoValor <= totalPedidoNum + 0.01))
 
   async function refazerParcelas() {
     if (!pedido) return
-    const restante = valorNota - usado
+    const restante = valorNota - usadoTotal
     if (restante <= 0.005) {
       setParcelas([])
       return
@@ -546,15 +586,16 @@ export default function EntradaNotaFiscal() {
   useEffect(() => {
     if (modo === 'pedido' && pedido && !parcelasEditadas) refazerParcelas()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modo, pedido, valorNota, stNota, usado, dataEmissao, parcelasEditadas])
+  }, [modo, pedido, valorNota, stNota, usadoTotal, dataEmissao, parcelasEditadas])
 
   const somaParcelas = parcelas.reduce((s, p) => s + lerValor(p.valor), 0)
   const antecipacaoAcima = antecipacoes.some((a) => lerValor(usar[a.id] ?? '') > a.saldo + 0.001)
   const financeiroOk =
     valorNota > 0 &&
     !antecipacaoAcima &&
+    pagoOk &&
     usado <= valorNota + 0.001 &&
-    Math.abs(valorNota - usado - somaParcelas) <= 0.01 &&
+    Math.abs(valorNota - usadoTotal - somaParcelas) <= 0.01 &&
     parcelas.every((p) => p.data_vencimento && lerValor(p.valor) > 0)
   // SPEC-220: só registra com vínculos dentro do limite e chave válida (SPEC-222: o total é o dos itens)
   const entradaOk = financeiroOk && vinculosOk && chaveOk && lerValor(desconto) >= 0
@@ -640,10 +681,19 @@ export default function EntradaNotaFiscal() {
             data_vencimento: p.data_vencimento,
             valor: lerValor(p.valor),
           })),
-          antecipacoes: Object.entries(usar)
-            .map(([pagamento_id, v]) => ({ pagamento_id, valor: lerValor(v) }))
-            .filter((a) => a.valor > 0),
+          // as ligadas ao pedido que a pessoa zerou/desmarcou vão com valor 0 (senão o banco as aplica sozinho)
+          antecipacoes: [
+            ...Object.entries(usar)
+              .map(([pagamento_id, v]) => ({ pagamento_id, valor: lerValor(v) }))
+              .filter((a) => a.valor > 0),
+            ...antecipacoes
+              .filter((a) => a.pedido_numero === pedido.numero && lerValor(usar[a.id] ?? '') <= 0)
+              .map((a) => ({ pagamento_id: a.id, valor: 0 })),
+          ],
           fornecedor_id: fornecedorNota?.id ?? null,
+          pagamento: pagoAtivo
+            ? { valor: pagoValor, data_pagamento: pago.data, observacao: pago.obs.trim() || null }
+            : null,
         })
         toast({
           title: 'Entrada de nota fiscal registrada',
@@ -654,6 +704,9 @@ export default function EntradaNotaFiscal() {
             r.parcelas > 0
               ? `${r.parcelas} parcela(s) no Contas a Pagar.`
               : 'Nota paga com pagamento antecipado (sem parcela).',
+            Number(r.pagamento_criado) > 0
+              ? `Pagamento de ${fmtBRL(Number(r.pagamento_criado))} lançado como antecipação do pedido (a Lana vê em Antecipações).`
+              : '',
             r.fornecedor_trocado ? `O pedido passou para ${fornecedorNota?.nome}.` : '',
             Number(r.estoque_somado) > 0
               ? `${fmtQtd(Number(r.estoque_somado))} peça(s) entraram no Estoque Geral.`
@@ -875,18 +928,45 @@ export default function EntradaNotaFiscal() {
                   )}
                   {pedido.itens.length > 0 && (
                     <div className="sm:col-span-4">
-                      <p className="text-slate-500 mb-1">
-                        Itens — informe quanto chegou agora (pedido fica Concluído quando tudo chegar)
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                        <p className="text-slate-500">
+                          Itens — marque o que chegou (a peça que não veio fica no pedido; ele só fica Concluído quando tudo chegar)
+                        </p>
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={pedidoFechado}
+                            onClick={() =>
+                              setChegou(Object.fromEntries(pecas.map((g) => [g.produto_id, String(g.falta)])))
+                            }
+                          >
+                            Marcar todas
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={pedidoFechado}
+                            onClick={() => setChegou(Object.fromEntries(pecas.map((g) => [g.produto_id, '0'])))}
+                          >
+                            Nenhuma
+                          </Button>
+                        </div>
+                      </div>
                       <div className="overflow-x-auto">
-                      <table className="w-full min-w-[760px] text-xs bg-white rounded border border-slate-200">
+                      <table className="w-full min-w-[820px] text-xs bg-white rounded border border-slate-200">
                         <thead>
                           <tr className="text-slate-500 border-b border-slate-200">
+                            <th className="text-center font-medium p-2 w-16">Chegou</th>
                             <th className="text-left font-medium p-2">Produto</th>
                             <th className="text-right font-medium p-2 w-20">Pedido</th>
                             <th className="text-right font-medium p-2 w-24">Já chegou</th>
                             <th className="text-right font-medium p-2 w-20">Falta</th>
-                            <th className="text-right font-medium p-2 w-28">Chegou agora</th>
+                            <th className="text-right font-medium p-2 w-28">Quantidade</th>
                             <th className="text-right font-medium p-2 w-24" title="Valor unitário na nota, sem IPI e ST">
                               Vl. unit.
                             </th>
@@ -905,6 +985,19 @@ export default function EntradaNotaFiscal() {
                             const vincAMais = vinculado > chegaAgora + 0.0001
                             return (
                               <tr key={g.produto_id} className="border-b border-slate-100 last:border-0">
+                                <td className="p-2 text-center">
+                                  <Checkbox
+                                    checked={lerChegou(g.produto_id) > 0}
+                                    disabled={pedidoFechado || g.falta <= 0}
+                                    aria-label={`Chegou: ${g.produto_nome}`}
+                                    onCheckedChange={(c) =>
+                                      setChegou((prev) => ({
+                                        ...prev,
+                                        [g.produto_id]: c === true ? String(g.falta) : '0',
+                                      }))
+                                    }
+                                  />
+                                </td>
                                 <td className="p-2 text-slate-700">
                                   {g.produto_codigo && (
                                     <span className="font-mono text-slate-400 mr-1.5">
@@ -997,6 +1090,11 @@ export default function EntradaNotaFiscal() {
                         </tbody>
                       </table>
                       </div>
+                      {!pedidoFechado && itensChegando.length === 0 && (
+                        <p className="mt-2 text-sm font-medium text-amber-700">
+                          Marque o que chegou: use a caixa de cada peça (ou "Marcar todas") para liberar o registro da nota.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1299,8 +1397,17 @@ export default function EntradaNotaFiscal() {
                     refazerParcelas()
                   }}
                   antecipacoes={antecipacoes}
+                  pedidoNumero={pedido?.numero ?? null}
+                  totalPedido={totalPedidoNum}
+                  pago={pago}
+                  onPagoChange={(p) => {
+                    setPago(p)
+                    setParcelasEditadas(false)
+                  }}
+                  pagoAplicado={pagoAplicado}
                   usar={usar}
                   onUsarChange={(u) => {
+                    setUsarEditado(true)
                     setUsar(u)
                     setParcelasEditadas(false)
                   }}

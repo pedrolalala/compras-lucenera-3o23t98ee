@@ -15,6 +15,14 @@ export interface ParcelaNota {
   valor: string
 }
 
+// SPEC-289 B: "este pedido já foi pago (antecipado / à vista)" marcado na entrada da nota.
+export interface PagoNaEntrada {
+  ativo: boolean
+  valor: string
+  data: string
+  obs: string
+}
+
 export const lerValor = (v: string) => {
   const t = (v ?? '').trim()
   if (!t) return 0
@@ -51,6 +59,11 @@ export function FinanceiroNotaEntrada({
   onParcelasChange,
   onRefazer,
   antecipacoes,
+  pedidoNumero,
+  totalPedido,
+  pago,
+  onPagoChange,
+  pagoAplicado,
   usar,
   onUsarChange,
   disabled,
@@ -61,13 +74,27 @@ export function FinanceiroNotaEntrada({
   onParcelasChange: (p: ParcelaNota[]) => void
   onRefazer: () => void
   antecipacoes: AntecipacaoEntrada[]
+  pedidoNumero: string | null
+  totalPedido: number
+  pago: PagoNaEntrada
+  onPagoChange: (p: PagoNaEntrada) => void
+  /** Quanto do pagamento "já foi pago" cobre esta nota (o que passar disso fica de saldo no pedido). */
+  pagoAplicado: number
   usar: Record<string, string>
   onUsarChange: (u: Record<string, string>) => void
   disabled?: boolean
 }) {
-  const usado = r2(Object.values(usar).reduce((s, v) => s + lerValor(v), 0))
+  const usadoMarcado = r2(Object.values(usar).reduce((s, v) => s + lerValor(v), 0))
+  const usado = r2(usadoMarcado + pagoAplicado)
   const somaParcelas = r2(parcelas.reduce((s, p) => s + lerValor(p.valor), 0))
   const diferenca = r2(valorNota - usado - somaParcelas)
+  // Pedido que já tem antecipação ligada (lançada pela Lana): usa essa, sem pedir de novo
+  const ligadas = antecipacoes.filter((a) => !!pedidoNumero && a.pedido_numero === pedidoNumero)
+  const hojeStr = new Date().toISOString().slice(0, 10)
+  const valorPago = lerValor(pago.valor)
+  // SPEC-289: teto = valor total do pedido (o banco também recusa acima disso; tolerância de R$ 0,01)
+  const acimaDoPedido = totalPedido > 0 && valorPago > totalPedido + 0.01
+  const dataFutura = !!pago.data && pago.data > hojeStr
 
   function marcar(a: AntecipacaoEntrada, marcado: boolean) {
     const novo = { ...usar }
@@ -130,6 +157,86 @@ export function FinanceiroNotaEntrada({
               </div>
             )
           })}
+        </div>
+      )}
+
+      {ligadas.length > 0 ? (
+        <p className="text-xs rounded-md border border-sky-200 bg-sky-50 p-2 text-sky-900">
+          Este pedido já tem pagamento antecipado lançado ({ligadas.map((a) => fmtBRL(a.saldo)).join(' + ')} de saldo):
+          ele já vem marcado acima com o que cabe nesta nota (dá para editar o valor ou desmarcar), sem lançar de novo.
+        </p>
+      ) : (
+        <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-emerald-900 cursor-pointer">
+            <Checkbox
+              checked={pago.ativo}
+              disabled={disabled}
+              onCheckedChange={(c) =>
+                onPagoChange({
+                  ...pago,
+                  ativo: c === true,
+                  valor: c === true && !pago.valor && totalPedido > 0 ? r2(totalPedido).toFixed(2) : pago.valor,
+                })
+              }
+            />
+            Este pedido já foi pago (antecipado / à vista)
+          </label>
+          {pago.ativo && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Valor pago (R$)</Label>
+                <Input
+                  inputMode="decimal"
+                  className={cn('h-8 text-right', (valorPago <= 0 || acimaDoPedido) && 'border-red-400')}
+                  value={pago.valor}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    // limita ao total do pedido
+                    const v = lerValor(e.target.value)
+                    onPagoChange({
+                      ...pago,
+                      valor:
+                        totalPedido > 0 && v > totalPedido + 0.01 ? r2(totalPedido).toFixed(2) : e.target.value,
+                    })
+                  }}
+                />
+                {totalPedido > 0 && (
+                  <p className={cn('text-[11px]', acimaDoPedido ? 'text-red-600' : 'text-slate-500')}>
+                    {acimaDoPedido
+                      ? `O valor pago não pode passar do total do pedido (${fmtBRL(totalPedido)}).`
+                      : `Máximo: total do pedido (${fmtBRL(totalPedido)}).`}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Data do pagamento</Label>
+                <Input
+                  type="date"
+                  max={hojeStr}
+                  className={cn('h-8', (!pago.data || dataFutura) && 'border-red-400')}
+                  value={pago.data}
+                  disabled={disabled}
+                  onChange={(e) => onPagoChange({ ...pago, data: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Observação (opcional)</Label>
+                <Input
+                  className="h-8"
+                  value={pago.obs}
+                  disabled={disabled}
+                  onChange={(e) => onPagoChange({ ...pago, obs: e.target.value })}
+                />
+              </div>
+              <p className="sm:col-span-3 text-xs text-emerald-800">
+                Vale direto, sem aprovação: o pagamento fica registrado como antecipação deste pedido (a Lana vê em
+                Antecipações) e já é descontado desta nota; as parcelas ficam só com o restante.
+                {valorPago > valorNota && valorNota > 0
+                  ? ` Pago a mais que esta nota: ${fmtBRL(valorPago - pagoAplicado)} ficam de saldo para as próximas notas do pedido.`
+                  : ''}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
