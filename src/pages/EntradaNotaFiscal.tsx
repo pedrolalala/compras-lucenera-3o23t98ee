@@ -53,6 +53,7 @@ import {
   datasDasParcelas,
   formatarDocumento,
   getAntecipacoesParaEntrada,
+  getPagamentosExistentesParaEntrada,
   getDocumentoFornecedor,
   getEntregasFuturas,
   podeVincularHerancaConnect,
@@ -61,6 +62,7 @@ import {
   listarApropriacoesCompra,
   type ApropriacaoCompra,
   type AntecipacaoEntrada,
+  type PagamentoExistente,
   type EntregaFutura,
   type PedidoParaEntrada,
   type NotaFiscalCompraRow,
@@ -87,6 +89,7 @@ import {
 } from '@/components/compra/VinculoClientesDialog'
 import { EspelhoEntradaDialog } from '@/components/compra/EspelhoEntradaDialog'
 import { PedidoPagoPerguntaDialog } from '@/components/compra/PedidoPagoPerguntaDialog'
+import { condicaoAntecipada } from '@/components/compra/CondicaoPagamentoCampo'
 
 const hoje = () => new Date().toISOString().slice(0, 10)
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -185,10 +188,16 @@ export default function EntradaNotaFiscal() {
   const [antecipacoes, setAntecipacoes] = useState<AntecipacaoEntrada[]>([])
   const [usar, setUsar] = useState<Record<string, string>>({})
   // SPEC-289 B: "este pedido já foi pago" marcado na entrada (cria a antecipação e vincula à nota)
-  const PAGO_VAZIO = (): PagoNaEntrada => ({ ativo: false, valor: '', data: hoje(), obs: '' })
+  const PAGO_VAZIO = (): PagoNaEntrada => ({ ativo: false, valor: '', data: hoje(), obs: '', forcar: false })
   const [pago, setPago] = useState<PagoNaEntrada>(PAGO_VAZIO)
   // SPEC-289 B4: a antecipação já ligada ao pedido vem marcada sozinha até a pessoa mexer nas marcações
   const [usarEditado, setUsarEditado] = useState(false)
+  // SPEC-290: pagamentos já existentes (duplicata paga da Connect) do fornecedor do pedido, para vincular à nota sem abrir outro Contas a Pagar.
+  // Nada vem marcado: vincular é sempre uma confirmação humana (clique na duplicata).
+  const [existentes, setExistentes] = useState<PagamentoExistente[]>([])
+  const [vincular, setVincular] = useState<Record<string, string>>({})
+  // falha ao consultar os pagamentos já feitos: não dá para garantir que não há duplicidade (bloqueia "já foi pago")
+  const [erroExistentes, setErroExistentes] = useState(false)
 
   // SPEC-220 (reunião Vinicius 21/10): valores por item, dados da nota, vínculo com o cliente e espelho.
   const [valoresPeca, setValoresPeca] = useState<Record<string, ValoresPeca>>({})
@@ -337,6 +346,32 @@ export default function EntradaNotaFiscal() {
       .catch(() => setAntecipacoes([]))
   }, [pedido, fornecedorNota?.id])
 
+  // SPEC-290 A: pagamentos já feitos (Connect/adiantamento) do fornecedor; recalcula se o fornecedor da nota for trocado.
+  useEffect(() => {
+    setErroExistentes(false)
+    if (!pedido) {
+      setExistentes([])
+      return
+    }
+    // resposta atrasada (troca de pedido/fornecedor no meio da consulta) não pode sobrescrever a lista atual
+    let ativo = true
+    getPagamentosExistentesParaEntrada(pedido.id, fornecedorNota?.id)
+      .then((lista) => {
+        if (!ativo) return
+        setExistentes(lista)
+        setVincular((v) => Object.fromEntries(Object.entries(v).filter(([id]) => lista.some((e) => e.parcela_id === id))))
+      })
+      .catch(() => {
+        if (!ativo) return
+        setExistentes([])
+        setVincular({})
+        setErroExistentes(true)
+      })
+    return () => {
+      ativo = false
+    }
+  }, [pedido, fornecedorNota?.id])
+
   useEffect(() => {
     if (modo !== 'avulsa' || !produtoBusca.trim()) {
       setProdutoResultados([])
@@ -370,6 +405,7 @@ export default function EntradaNotaFiscal() {
         setChegou(Object.fromEntries(agruparPorPeca(result.itens).map((g) => [g.produto_id, '0'])))
         setPago(PAGO_VAZIO())
         setUsarEditado(false)
+        setVincular({})
         setValor(result.valor_total != null ? Number(result.valor_total).toFixed(2) : '')
         // SPEC-220: valores da nota já preenchidos do pedido (por peça; sem IPI/ST no valor unitário)
         setValoresPeca(
@@ -406,6 +442,9 @@ export default function EntradaNotaFiscal() {
     setChegou({})
     setPago(PAGO_VAZIO())
     setUsarEditado(false)
+    setVincular({})
+    setExistentes([])
+    setErroExistentes(false)
     setNumeroPedido('')
     setFornecedorSelecionado(null)
     setFornecedorBusca('')
@@ -530,7 +569,10 @@ export default function EntradaNotaFiscal() {
   const usado = Object.values(usar).reduce((s, v) => s + lerValor(v), 0)
   // SPEC-289 B4: pedido que já tem antecipação ligada (lançada pela Lana) usa essa; a opção "já foi pago" some
   const ligadaAoPedido = antecipacoes.some((a) => !!pedido && a.pedido_numero === pedido.numero && a.saldo > 0.001)
-  const pagoAtivo = modo === 'pedido' && pago.ativo && !ligadaAoPedido
+  // SPEC-290: valor dos pagamentos existentes vinculados a esta nota (cobrem a nota sem parcela; vêm antes da antecipação ligada)
+  const vincTotal = r2(Object.values(vincular).reduce((s, v) => s + lerValor(v), 0))
+  const vincAcima = existentes.some((e) => lerValor(vincular[e.parcela_id] ?? '') > e.saldo + 0.001)
+  const pagoAtivo = modo === 'pedido' && pago.ativo && !ligadaAoPedido && vincTotal <= 0
   // SPEC-289 B4: pré-marca a antecipação ligada ao pedido com min(saldo, restante da nota); o valor continua editável
   const chaveAutoUsar = JSON.stringify([
     antecipacoes.filter((a) => !!pedido && a.pedido_numero === pedido.numero).map((a) => [a.id, a.saldo]),
@@ -554,12 +596,22 @@ export default function EntradaNotaFiscal() {
   }, [chaveAutoUsar, modo, pedido])
   const pagoValor = pagoAtivo ? r2(lerValor(pago.valor)) : 0
   // pago a mais do que esta nota: o que sobra fica de saldo para as próximas notas do pedido
-  const pagoAplicado = r2(Math.min(pagoValor, Math.max(0, valorNota - usado)))
-  const usadoTotal = r2(usado + pagoAplicado)
+  const pagoAplicado = r2(Math.min(pagoValor, Math.max(0, valorNota - usado - vincTotal)))
+  const usadoTotal = r2(usado + vincTotal + pagoAplicado)
   const totalPedidoNum = pedido?.valor_total != null ? Number(pedido.valor_total) : 0
+  // SPEC-290 D: com pagamento equivalente já existente, "já foi pago" só passa se o Financeiro confirmar, com observação (o banco confere de novo)
+  const bloqueioPago =
+    pagoAtivo && vincTotal <= 0 && existentes.some((e) => e.equivalente || (pagoValor > 0 && Math.abs(e.saldo - pagoValor) <= 1))
+  const podeForcarPago = existentes.some((e) => e.pode_forcar)
+  const pagoLiberado = !bloqueioPago || (podeForcarPago && pago.forcar && !!pago.obs.trim())
   const pagoOk =
     !pagoAtivo ||
-    (pagoValor > 0 && !!pago.data && pago.data <= hoje() && (totalPedidoNum <= 0 || pagoValor <= totalPedidoNum + 0.01))
+    (!erroExistentes &&
+      pagoLiberado &&
+      pagoValor > 0 &&
+      !!pago.data &&
+      pago.data <= hoje() &&
+      (totalPedidoNum <= 0 || pagoValor <= totalPedidoNum + 0.01))
 
   async function refazerParcelas() {
     if (!pedido) return
@@ -593,8 +645,9 @@ export default function EntradaNotaFiscal() {
   const financeiroOk =
     valorNota > 0 &&
     !antecipacaoAcima &&
+    !vincAcima &&
     pagoOk &&
-    usado <= valorNota + 0.001 &&
+    usado + vincTotal <= valorNota + 0.001 &&
     Math.abs(valorNota - usadoTotal - somaParcelas) <= 0.01 &&
     parcelas.every((p) => p.data_vencimento && lerValor(p.valor) > 0)
   // SPEC-220: só registra com vínculos dentro do limite e chave válida (SPEC-222: o total é o dos itens)
@@ -692,8 +745,16 @@ export default function EntradaNotaFiscal() {
           ],
           fornecedor_id: fornecedorNota?.id ?? null,
           pagamento: pagoAtivo
-            ? { valor: pagoValor, data_pagamento: pago.data, observacao: pago.obs.trim() || null }
+            ? {
+                valor: pagoValor,
+                data_pagamento: pago.data,
+                observacao: pago.obs.trim() || null,
+                ...(bloqueioPago && pago.forcar ? { forcar_novo: true } : {}),
+              }
             : null,
+          vinculos_pagamento: Object.entries(vincular)
+            .map(([parcela_id, v]) => ({ parcela_id, valor: lerValor(v) }))
+            .filter((x) => x.valor > 0),
         })
         toast({
           title: 'Entrada de nota fiscal registrada',
@@ -704,6 +765,9 @@ export default function EntradaNotaFiscal() {
             r.parcelas > 0
               ? `${r.parcelas} parcela(s) no Contas a Pagar.`
               : 'Nota paga com pagamento antecipado (sem parcela).',
+            Number(r.vinculos_pagamento) > 0
+              ? 'Pagamento já existente vinculado à nota: nenhum Contas a Pagar novo foi aberto.'
+              : '',
             Number(r.pagamento_criado) > 0
               ? `Pagamento de ${fmtBRL(Number(r.pagamento_criado))} lançado como antecipação do pedido (a Lana vê em Antecipações).`
               : '',
@@ -1411,6 +1475,15 @@ export default function EntradaNotaFiscal() {
                     setUsar(u)
                     setParcelasEditadas(false)
                   }}
+                  existentes={existentes}
+                  vincular={vincular}
+                  onVincularChange={(v) => {
+                    setVincular(v)
+                    setParcelasEditadas(false)
+                  }}
+                  condicaoAntecipada={condicaoAntecipada(pedido?.condicoes_pagamento)}
+                  bloqueioPago={bloqueioPago}
+                  erroDeteccao={erroExistentes}
                   disabled={salvando}
                 />
               )}

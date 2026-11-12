@@ -264,6 +264,56 @@ export async function getAntecipacoesParaEntrada(
   }))
 }
 
+// SPEC-290: pagamento que JÁ EXISTE (duplicata paga da Connect / adiantamento) do fornecedor do pedido. Só o necessário para a Entrada de NF.
+export interface PagamentoExistente {
+  parcela_id: string
+  duplicata: string
+  valor: number
+  /** Quanto ainda pode ser vinculado (pago − o que já cobre outras notas). */
+  saldo: number
+  data_pagamento: string
+  origem: string
+  /** Saldo igual ao total do pedido (±R$ 0,01): só com correspondência única a tela pré-seleciona. */
+  valor_igual: boolean
+  /** Saldo a até R$ 1,00 do total do pedido: a opção "já foi pago" é bloqueada. */
+  equivalente: boolean
+  /** O usuário tem acesso ao financeiro e pode lançar um pagamento novo mesmo assim (com observação). */
+  pode_forcar: boolean
+  /** Outros pedidos ABERTOS do mesmo fornecedor/empresa com valor parecido (números separados por vírgula): a pessoa confere qual compra o pagamento quitou. */
+  outros_pedidos: string | null
+}
+
+export async function getPagamentosExistentesParaEntrada(
+  pedidoId: string,
+  fornecedorId?: string | null,
+): Promise<PagamentoExistente[]> {
+  const { data, error } = await (supabase as any).rpc('pagamentos_existentes_para_entrada', {
+    p_pedido_id: pedidoId,
+    p_fornecedor_id: fornecedorId ?? null,
+  })
+  if (error) throw error
+  return ((data ?? []) as any[]).map((a) => ({
+    ...a,
+    valor: Number(a.valor) || 0,
+    saldo: Number(a.saldo) || 0,
+  }))
+}
+
+/** SPEC-290 C2/A3: por pedido, a duplicata vinculada ("Pago antecipado") ou o aviso "falta vincular" (condição Antecipado sem vínculo). */
+export interface PagoAntecipadoInfo {
+  pedido_id: string
+  duplicata: string | null
+  numero_nf: string | null
+  falta_vincular: boolean
+}
+
+export async function getPagoAntecipadoInfo(pedidoIds: string[]): Promise<PagoAntecipadoInfo[]> {
+  if (pedidoIds.length === 0) return []
+  const { data, error } = await (supabase as any).rpc('pedidos_pago_antecipado_info', { p_pedido_ids: pedidoIds })
+  if (error) throw error
+  return (data ?? []) as PagoAntecipadoInfo[]
+}
+
 export interface RegistrarEntradaNotaInput {
   pedido_id: string
   /** SPEC-220: valores da nota por unidade (sem IPI/ST no valor_unitario). */
@@ -296,7 +346,15 @@ export interface RegistrarEntradaNotaInput {
   /** Apropriação (plano de contas) da nota; vazio = COMPRAS - REVENDA. */
   plano_contas_id?: string | null
   /** SPEC-289: "este pedido já foi pago" — o banco cria a antecipação do pedido e a vincula à nota (sem aprovação). */
-  pagamento?: { valor: number; data_pagamento: string; observacao: string | null } | null
+  pagamento?: {
+    valor: number
+    data_pagamento: string
+    observacao: string | null
+    /** SPEC-290 D2: só quem tem acesso ao financeiro; lança pagamento novo apesar de haver um equivalente (observação obrigatória). */
+    forcar_novo?: boolean
+  } | null
+  /** SPEC-290: pagamentos já existentes (duplicata da Connect) que cobrem esta nota — o banco só registra o vínculo, sem título nem parcela. */
+  vinculos_pagamento?: Array<{ parcela_id: string; valor: number }>
 }
 
 export interface ApropriacaoCompra {
@@ -327,6 +385,8 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
   pagamento_criado: number
   /** SPEC-289: quanto do pagamento ficou aplicado a esta nota. */
   pagamento_aplicado: number
+  /** SPEC-290: quantos pagamentos existentes foram vinculados a esta nota. */
+  vinculos_pagamento: number
 }> {
   const arquivoUrl = input.arquivo
     ? await uploadArquivoNotaFiscalCompra(input.arquivo, input.pedido_id)
@@ -353,6 +413,8 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
     p_fornecedor_id: input.fornecedor_id,
     p_vinculos: input.vinculos,
     p_pagamento: input.pagamento ?? null,
+    // só envia quando há vínculo (assim a tela segue funcionando se for publicada antes da migration 345)
+    ...(input.vinculos_pagamento?.length ? { p_vinculos_pagamento: input.vinculos_pagamento } : {}),
   })
   if (error) throw error
   return data

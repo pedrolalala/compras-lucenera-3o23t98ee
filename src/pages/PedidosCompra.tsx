@@ -48,6 +48,7 @@ import { ImportarPedidosConnectDialog } from '@/components/compra/ImportarPedido
 import { ImportarPdfPedidoConnectDialog } from '@/components/compra/ImportarPdfPedidoConnectDialog'
 import { PedidoPagoPerguntaDialog } from '@/components/compra/PedidoPagoPerguntaDialog'
 import { perguntaPagamentoPedido } from '@/services/pedido-pago-pergunta'
+import { getPagoAntecipadoInfo, type PagoAntecipadoInfo } from '@/services/notas-fiscais-compra'
 import { baixarPdfPedidoFornecedor } from '@/lib/pdf-pedido-fornecedor'
 import {
   getPedidosCompra,
@@ -118,6 +119,8 @@ export default function PedidosCompra() {
   const [importarPdfAberto, setImportarPdfAberto] = useState(false)
   // SPEC-258 (Financeiro) 4b: pedido concluído com parcelas previstas pergunta "já foram pagas?"
   const [filaPagamento, setFilaPagamento] = useState<PedidoCompraRow[]>([])
+  // SPEC-290: selo "Pago antecipado (dup. X)" e aviso "Pago — falta vincular o pagamento" por pedido
+  const [pagoInfo, setPagoInfo] = useState<Map<string, PagoAntecipadoInfo>>(new Map())
   const [pagamentoAdiado, setPagamentoAdiado] = useState<Set<string>>(new Set())
 
   // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
@@ -156,6 +159,34 @@ export default function PedidosCompra() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // SPEC-290 C2/A3: pagamento já existente vinculado ao pedido (selo) ou pedido "Antecipado" ainda sem vínculo (aviso)
+  useEffect(() => {
+    const ids = rows.filter((r) => r.status !== 'cancelado').map((r) => r.id)
+    if (ids.length === 0) {
+      setPagoInfo(new Map())
+      return
+    }
+    let ativo = true
+    const lotes: string[][] = []
+    for (let i = 0; i < ids.length; i += 500) lotes.push(ids.slice(i, i + 500))
+    Promise.all(lotes.map((l) => getPagoAntecipadoInfo(l).catch(() => [] as PagoAntecipadoInfo[]))).then((res) => {
+      if (!ativo) return
+      const m = new Map<string, PagoAntecipadoInfo>()
+      for (const x of res.flat()) {
+        const atual = m.get(x.pedido_id)
+        // o vínculo (selo) vale mais que o aviso; vários vínculos juntam as duplicatas
+        if (!atual) m.set(x.pedido_id, x)
+        else if (!x.falta_vincular && !atual.falta_vincular && x.duplicata)
+          m.set(x.pedido_id, { ...atual, duplicata: [atual.duplicata, x.duplicata].filter(Boolean).join(', ') })
+        else if (!x.falta_vincular) m.set(x.pedido_id, x)
+      }
+      setPagoInfo(m)
+    })
+    return () => {
+      ativo = false
+    }
+  }, [rows])
 
   // SPEC-258 4b: depois de carregar, confere no banco quais pedidos concluídos ainda esperam a resposta de pagamento.
   useEffect(() => {
@@ -553,6 +584,22 @@ export default function PedidosCompra() {
                         <span className="text-xs text-slate-500 line-clamp-1">
                           {r.condicoes_pagamento ?? '—'}
                         </span>
+                        {pagoInfo.get(r.id) &&
+                          (pagoInfo.get(r.id)!.falta_vincular ? (
+                            <span
+                              className="block text-[11px] font-medium text-amber-700"
+                              title="Pedido Antecipado sem pagamento vinculado: vincule a duplicata paga na Entrada de NF (não use 'já foi pago')."
+                            >
+                              Pago — falta vincular o pagamento
+                            </span>
+                          ) : (
+                            <span
+                              className="block text-[11px] font-medium text-sky-700"
+                              title="Pagamento já existente vinculado a este pedido: nenhum Contas a Pagar novo."
+                            >
+                              Pago antecipado (dup. {pagoInfo.get(r.id)!.duplicata ?? '—'})
+                            </span>
+                          ))}
                       </TableCell>
                       <TableCell className="text-right align-middle py-2">
                         <span className="text-sm font-semibold text-slate-700">
