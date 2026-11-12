@@ -44,6 +44,7 @@ import {
   arredondarParaCaixa,
   fechaCaixa,
   vincularOrigemPedidoItem,
+  definirPercentuaisParcelasPedido,
   type Empresa,
 } from '@/services/pedido-compra'
 import type { LinhaCarrinho } from '@/services/necessidade-compra-item'
@@ -55,7 +56,7 @@ import {
   percentualParaCampo,
 } from '@/components/compra/custo-compra'
 import { ObservacaoCaixaFechada } from '@/components/compra/ObservacaoCaixaFechada'
-import { CondicaoPagamentoCampo } from '@/components/compra/CondicaoPagamentoCampo'
+import { CondicaoPagamentoCampo, percentuaisValidos, tipoDaCondicao } from '@/components/compra/CondicaoPagamentoCampo'
 import { useArrastavel } from '@/components/compra/use-arrastavel'
 
 // SPEC-155 (P3): remove as setinhas de incremento nativas dos campos
@@ -138,6 +139,7 @@ export function ModalGerarCompraItemOrcamento({
   const [numero, setNumero] = useState('')
   const [dataPrevista, setDataPrevista] = useState('')
   const [condicoesPagamento, setCondicoesPagamento] = useState('')
+  const [percentuais, setPercentuais] = useState<number[] | null>(null) // SPEC-286
   const [observacao, setObservacao] = useState('')
   const [loading, setLoading] = useState(false)
   const [empresas, setEmpresas] = useState<Empresa[]>([])
@@ -202,6 +204,7 @@ export function ModalGerarCompraItemOrcamento({
     setNumero(cabSalvo.numero ?? '')
     setDataPrevista(cabSalvo.dataPrevista ?? '')
     setCondicoesPagamento(cabSalvo.condicoesPagamento ?? '')
+    setPercentuais(null)
     setObservacao(cabSalvo.observacao ?? '')
     setEmpresaId(cabSalvo.empresaId ?? empresaDasVendas)
     setPerfil(cabSalvo.perfil ?? '')
@@ -398,7 +401,7 @@ export function ModalGerarCompraItemOrcamento({
   const todasLinhasValidas = ativas.length > 0 && ativas.every((l) => l.qtd > 0 && l.custo > 0)
 
   // SPEC-155 (P3): Empresa emitente obrigatória. SPEC-222 F8: condição de pagamento também.
-  const canSubmit = todasLinhasValidas && !!empresaId && !!condicoesPagamento.trim() && !loading
+  const canSubmit = todasLinhasValidas && !!empresaId && !!condicoesPagamento.trim() && percentuaisValidos(percentuais) && !loading
 
   // SPEC-209 B5: total dos produtos (preço de custo × qtd) e total com impostos.
   const totalProdutos = ativas.reduce(
@@ -481,6 +484,10 @@ export function ModalGerarCompraItemOrcamento({
       let avisoParcelas = ''
       if (condicoesPagamento.trim()) {
         try {
+          // SPEC-286: % de cada parcela (sinal + resto) entram antes de gerar as parcelas
+          if (percentuais && tipoDaCondicao(condicoesPagamento) === 'datas') {
+            await definirPercentuaisParcelasPedido(result.pedido_id, percentuais)
+          }
           await gerarParcelasPedidoCompra(result.pedido_id)
         } catch {
           avisoParcelas =
@@ -763,7 +770,13 @@ export function ModalGerarCompraItemOrcamento({
                 </p>
               )}
             </div>
-            <CondicaoPagamentoCampo value={condicoesPagamento} onChange={setCondicoesPagamento} />
+            <CondicaoPagamentoCampo
+              value={condicoesPagamento}
+              onChange={setCondicoesPagamento}
+              total={totalComImpostos * (1 - descontoNum / 100)}
+              percentuais={percentuais}
+              onPercentuaisChange={setPercentuais}
+            />
             <div className="space-y-2">
               <Label className="text-sm text-slate-600">Nº do pedido / referência (opcional)</Label>
               <Input

@@ -46,6 +46,22 @@ export function tipoDaCondicao(v: string): Tipo {
   return 'prazo'
 }
 
+// SPEC-286: parcelas com valores diferentes (ex.: sinal de 25% + 3 parcelas). Os percentuais ficam em
+// pedidos_compra.condicoes_percentuais (na ordem das datas); o texto continua só com as datas.
+const lerPct = (v: string) => {
+  const n = parseFloat(v.replace(/\./g, '').replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+const fmtPct = (n: number) => String(Math.round(n * 100) / 100).replace('.', ',')
+function partesIguais(n: number): number[] {
+  const base = Math.floor(10000 / n) / 100
+  return Array.from({ length: n }, (_, i) => (i < n - 1 ? base : Math.round((100 - base * (n - 1)) * 100) / 100))
+}
+/** Percentuais prontos para salvar: todos > 0 e soma 100 (±0,01). */
+export const percentuaisValidos = (p: number[] | null | undefined) =>
+  !p || (p.length > 0 && p.every((x) => x > 0) && Math.abs(p.reduce((a, b) => a + b, 0) - 100) <= 0.01)
+const brlCampo = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
 export const condicaoAntecipada = (v: string | null | undefined) => tipoDaCondicao(v ?? '') === 'antecipado'
 
 export function CondicaoPagamentoCampo({
@@ -53,12 +69,31 @@ export function CondicaoPagamentoCampo({
   onChange,
   obrigatorio = true,
   className,
+  total,
+  percentuais,
+  onPercentuaisChange,
 }: {
   value: string
   onChange: (v: string) => void
   obrigatorio?: boolean
   className?: string
+  /** total do pedido (só para mostrar o valor em R$ de cada parcela) */
+  total?: number
+  /** % de cada parcela (null = partes iguais); precisa de onPercentuaisChange para aparecer a opção */
+  percentuais?: number[] | null
+  onPercentuaisChange?: (p: number[] | null) => void
 }) {
+  const [pcts, setPcts] = useState<string[] | null>(() => (percentuais ? percentuais.map(fmtPct) : null))
+  useEffect(() => {
+    // pedido carregado depois da montagem (Editar Pedido)
+    if (percentuais && (!pcts || pcts.map(lerPct).join('|') !== percentuais.join('|'))) setPcts(percentuais.map(fmtPct))
+    if (!percentuais && pcts && pcts.length === 0) setPcts(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [percentuais ? percentuais.join('|') : ''])
+  function emitirPcts(novos: string[] | null) {
+    setPcts(novos)
+    onPercentuaisChange?.(novos ? novos.map(lerPct) : null)
+  }
   // "Por datas" vazio ainda não tem texto que o identifique: o modo fica guardado aqui.
   const [modo, setModo] = useState<Tipo>(() => tipoDaCondicao(value))
   const [datas, setDatas] = useState<string[]>(() => datasDaCondicao(value.trim()) ?? [''])
@@ -96,6 +131,7 @@ export function CondicaoPagamentoCampo({
             type="button"
             onClick={() => {
               setModo(o.tipo)
+              if (pcts) emitirPcts(null)
               if (o.tipo === 'datas') {
                 setDatas([''])
                 onChange('')
@@ -133,12 +169,30 @@ export function CondicaoPagamentoCampo({
                 value={d}
                 onChange={(e) => mudarDatas(datas.map((x, j) => (j === i ? e.target.value : x)))}
               />
+              {pcts && (
+                <>
+                  <Input
+                    inputMode="decimal"
+                    className="h-9 w-20 text-right text-sm"
+                    title="Percentual desta parcela"
+                    value={pcts[i] ?? ''}
+                    onChange={(e) => emitirPcts(pcts.map((x, j) => (j === i ? e.target.value : x)))}
+                  />
+                  <span className="text-xs text-slate-500">%</span>
+                  {!!total && total > 0 && (
+                    <span className="w-28 text-xs text-slate-600">{brlCampo((total * lerPct(pcts[i] ?? '')) / 100)}</span>
+                  )}
+                </>
+              )}
               {datas.length > 1 && (
                 <button
                   type="button"
                   title="Tirar parcela"
                   className="text-slate-400 hover:text-red-600"
-                  onClick={() => mudarDatas(datas.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    mudarDatas(datas.filter((_, j) => j !== i))
+                    if (pcts) emitirPcts(pcts.filter((_, j) => j !== i))
+                  }}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -148,10 +202,34 @@ export function CondicaoPagamentoCampo({
           <button
             type="button"
             className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            onClick={() => setDatas([...datas, ''])}
+            onClick={() => {
+              setDatas([...datas, ''])
+              if (pcts) emitirPcts([...pcts, ''])
+            }}
           >
             <Plus className="w-3.5 h-3.5" /> Parcela
           </button>
+          {onPercentuaisChange && (
+            <label className="flex items-center gap-2 pt-1 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={!!pcts}
+                onChange={(e) => emitirPcts(e.target.checked ? partesIguais(datas.length).map(fmtPct) : null)}
+              />
+              Valores diferentes por parcela (ex.: sinal de 25% + o resto em parcelas)
+            </label>
+          )}
+          {pcts && (
+            <p
+              className={cn(
+                'text-xs',
+                percentuaisValidos(pcts.map(lerPct)) ? 'text-emerald-700' : 'font-medium text-red-600',
+              )}
+            >
+              Soma das parcelas: {fmtPct(pcts.map(lerPct).reduce((a, b) => a + b, 0))}%
+              {percentuaisValidos(pcts.map(lerPct)) ? '' : ' — precisa fechar 100% e nenhuma parcela pode ficar zerada.'}
+            </p>
+          )}
         </div>
       )}
       <p className="text-[11px] text-slate-500">
@@ -160,7 +238,9 @@ export function CondicaoPagamentoCampo({
           : tipo === 'vista'
             ? 'Uma parcela na data do pedido.'
             : tipo === 'datas'
-              ? 'Uma parcela em cada data, em partes iguais (previsão de pagamento).'
+              ? pcts
+                ? 'Cada parcela com o percentual informado (previsão de pagamento).'
+                : 'Uma parcela em cada data, em partes iguais (previsão de pagamento).'
               : 'As parcelas são geradas em partes iguais (previsão de pagamento).'}
       </p>
     </div>

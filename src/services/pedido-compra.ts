@@ -441,6 +441,15 @@ export async function gerarParcelasPedidoCompra(
   return data as { pedido_id: string; parcelas_criadas: number }
 }
 
+/** SPEC-286: % de cada parcela do pedido (na ordem das datas); null = partes iguais. Só em "Aguardando aprovar". */
+export async function definirPercentuaisParcelasPedido(pedidoId: string, percentuais: number[] | null): Promise<void> {
+  const { error } = await (supabase as any).rpc('definir_percentuais_parcelas_pedido', {
+    p_pedido_id: pedidoId,
+    p_percentuais: percentuais && percentuais.length > 0 ? percentuais : null,
+  })
+  if (error) throw error
+}
+
 export async function getParcelasPedidoCompra(pedidoId: string): Promise<PedidoCompraParcela[]> {
   const { data, error } = await (supabase as any)
     .from('pedido_compra_parcelas')

@@ -38,6 +38,7 @@ import {
   getItensDoPedido,
   getItensPorCaixa,
   getProdutoImpostos,
+  definirPercentuaisParcelasPedido,
   type Empresa,
   type EditarPedidoItem,
   type PedidoCompraRow,
@@ -50,7 +51,7 @@ import {
   lerNumero,
   percentualParaCampo,
 } from '@/components/compra/custo-compra'
-import { CondicaoPagamentoCampo } from '@/components/compra/CondicaoPagamentoCampo'
+import { CondicaoPagamentoCampo, percentuaisValidos, tipoDaCondicao } from '@/components/compra/CondicaoPagamentoCampo'
 import { useArrastavel } from '@/components/compra/use-arrastavel'
 
 // SPEC-209 D3: o fornecedor respondeu (mudou quantidade, deu desconto, faltou item...) e a Débora
@@ -137,6 +138,7 @@ export function EditarPedidoDialog({
   const [desconto, setDesconto] = useState('')
   const [dataPrevista, setDataPrevista] = useState('')
   const [condicoes, setCondicoes] = useState('')
+  const [percentuais, setPercentuais] = useState<number[] | null>(null) // SPEC-286
   const [localEntrega, setLocalEntrega] = useState('')
   const [observacao, setObservacao] = useState('')
   // SPEC-263 C: valor final negociado (R$) — vazio = vale o desconto %
@@ -172,6 +174,7 @@ export function EditarPedidoDialog({
     setDesconto(pedido.desconto_percentual ? String(pedido.desconto_percentual) : '')
     setDataPrevista(pedido.data_prevista_entrega ?? '')
     setCondicoes(pedido.condicoes_pagamento ?? '')
+    setPercentuais(Array.isArray((pedido as any).condicoes_percentuais) ? (pedido as any).condicoes_percentuais.map(Number) : null)
     setLocalEntrega(pedido.local_entrega ?? '')
     setObservacao(pedido.observacao ?? '')
     getEmpresas()
@@ -292,12 +295,15 @@ export function EditarPedidoDialog({
     ativas.length > 0 &&
     ativas.every((l) => l.qtd > 0 && l.c.total > 0) &&
     !!condicoes.trim() &&
+    percentuaisValidos(percentuais) &&
     !negociadoAcimaDoTotal
 
   async function salvar() {
     if (!pedido || !valido) return
     setSalvando(true)
     try {
+      // SPEC-286: os % das parcelas são gravados antes; o banco refaz as parcelas com eles ao salvar o pedido
+      await definirPercentuaisParcelasPedido(pedido.id, tipoDaCondicao(condicoes) === 'datas' ? percentuais : null)
       const r = await editarPedidoCompra({
         pedido_id: pedido.id,
         itens: calculadas.flatMap((l): EditarPedidoItem[] =>
@@ -607,7 +613,13 @@ export function EditarPedidoDialog({
                   onChange={(e) => setDataPrevista(e.target.value)}
                 />
               </div>
-              <CondicaoPagamentoCampo value={condicoes} onChange={setCondicoes} />
+              <CondicaoPagamentoCampo
+                value={condicoes}
+                onChange={setCondicoes}
+                total={negociadoAtivo ? negociadoNum : totalComImpostos * (1 - descontoNum / 100)}
+                percentuais={percentuais}
+                onPercentuaisChange={setPercentuais}
+              />
               <div className="space-y-1.5">
                 <Label className="text-sm text-slate-600">Local de entrega</Label>
                 <Input
