@@ -797,3 +797,105 @@ export async function getNomeUsuario(usuarioId: string): Promise<string | null> 
     .maybeSingle()
   return data?.nome ?? null
 }
+
+// -----------------------------------------------------------------------
+// SPEC-291 — pedido "Concluído parcialmente": só o que falta (somente leitura)
+// -----------------------------------------------------------------------
+
+export interface ResumoParcialPedido {
+  /** custo x o que falta (mesma base de custo da tabela de itens), já com o desconto % do pedido */
+  aReceber: number
+  /** custo x o já recebido (limitado ao pedido), já com o desconto % do pedido */
+  recebido: number
+}
+
+/** Desconto % do pedido; some quando há valor negociado (aí o total é fixo e o % deixa de valer). */
+function fatorDescontoPedido(descPerc: number | null, valorNegociado: number | null): number {
+  const d = Number(descPerc) || 0
+  return valorNegociado == null && d > 0 ? 1 - d / 100 : 1
+}
+
+/** Valor a receber / recebido de vários pedidos de uma vez (só os parcialmente recebidos). Em erro, lança. */
+export async function getResumoParcialPedidos(
+  pedidos: { id: string; desconto_percentual: number | null; valor_negociado: number | null }[],
+): Promise<Map<string, ResumoParcialPedido>> {
+  const out = new Map<string, ResumoParcialPedido>()
+  if (pedidos.length === 0) return out
+  const fator = new Map(pedidos.map((p) => [p.id, fatorDescontoPedido(p.desconto_percentual, p.valor_negociado)]))
+  const { data, error } = await (supabase as any)
+    .from('pedido_compra_itens')
+    .select('pedido_id, quantidade, qtd_recebida, custo_unitario')
+    .in(
+      'pedido_id',
+      pedidos.map((p) => p.id),
+    )
+  if (error) throw error
+  for (const i of (data ?? []) as any[]) {
+    const q = Number(i.quantidade) || 0
+    const r = Math.min(Number(i.qtd_recebida) || 0, q)
+    const c = (Number(i.custo_unitario) || 0) * (fator.get(i.pedido_id) ?? 1)
+    const cur = out.get(i.pedido_id) ?? { aReceber: 0, recebido: 0 }
+    cur.aReceber += c * (q - r)
+    cur.recebido += c * r
+    out.set(i.pedido_id, cur)
+  }
+  return out
+}
+
+export interface ConsumidoPedido {
+  /** Σ notas ativas do pedido + saldo de antecipação ainda não aplicado (igual à previsão do Contas a Pagar) */
+  consumido: number
+  notas: { numero_nf: string; valor: number }[]
+  /** saldo de antecipação ainda não aplicado */
+  antecipacao: number
+}
+
+/** Qualquer falha de leitura lança: quem chama não pode mostrar parcela cheia como se fosse o restante. */
+export async function getConsumidoPedido(pedidoId: string): Promise<ConsumidoPedido> {
+  const { data: nfs, error } = await (supabase as any)
+    .from('notas_fiscais_compra')
+    .select('numero_nf, valor')
+    .eq('pedido_compra_id', pedidoId)
+    .is('cancelada_em', null)
+    .order('criado_em', { ascending: true })
+  if (error) throw error
+  const notas = ((nfs ?? []) as any[]).map((n) => ({
+    numero_nf: String(n.numero_nf ?? ''),
+    valor: Number(n.valor) || 0,
+  }))
+  const { data: ants, error: e2 } = await (supabase as any)
+    .from('pagamentos_antecipados')
+    .select('id, valor')
+    .eq('pedido_compra_id', pedidoId)
+    .is('cancelado_em', null)
+  if (e2) throw e2
+  const ids = ((ants ?? []) as any[]).map((a) => a.id)
+  const aplicado = new Map<string, number>()
+  if (ids.length > 0) {
+    const { data: vs, error: e3 } = await (supabase as any)
+      .from('pagamento_antecipado_vinculos')
+      .select('pagamento_id, valor_aplicado')
+      .in('pagamento_id', ids)
+    if (e3) throw e3
+    for (const v of (vs ?? []) as any[])
+      aplicado.set(v.pagamento_id, (aplicado.get(v.pagamento_id) ?? 0) + (Number(v.valor_aplicado) || 0))
+  }
+  let antecipacao = 0
+  for (const a of (ants ?? []) as any[]) antecipacao += (Number(a.valor) || 0) - (aplicado.get(a.id) ?? 0)
+  return { consumido: notas.reduce((s, n) => s + n.valor, 0) + antecipacao, notas, antecipacao }
+}
+
+/** Restante de cada parcela: o consumido abate da 1ª para a última (mesma conta da vw_contas_pagar_pedidos_compra). */
+export function restanteDasParcelas(
+  parcelas: { id: string; valor: number; status: string }[],
+  consumido: number,
+): Map<string, number> {
+  const out = new Map<string, number>()
+  let acum = 0
+  for (const p of parcelas) {
+    if (p.status === 'cancelado') continue
+    acum += p.valor
+    out.set(p.id, Math.max(0, Math.min(p.valor, Math.round((acum - consumido) * 100) / 100)))
+  }
+  return out
+}

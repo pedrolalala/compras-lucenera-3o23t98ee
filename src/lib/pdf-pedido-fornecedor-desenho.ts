@@ -248,7 +248,7 @@ export async function gerarPdfPedidoFornecedor(
 
   // ---------- Totais ----------
   const descPerc = Number(pedido.desconto_percentual) || 0
-  const descValor = descPerc > 0 ? totalBruto * (descPerc / 100) : 0
+  const descValor = descPerc > 0 && !(pedido.parcial && pedido.valor_negociado != null) ? totalBruto * (descPerc / 100) : 0
   const total = pedido.valor_total != null ? Number(pedido.valor_total) : totalBruto - descValor
   const linhasTotal: [string, number][] = [['Total dos produtos:', totalProdutos]]
   if (totalIpi > 0) linhasTotal.push(['IPI:', totalIpi])
@@ -256,7 +256,7 @@ export async function gerarPdfPedidoFornecedor(
   if (totalOutras > 0) linhasTotal.push(['Outras despesas:', totalOutras])
   if (descValor > 0) linhasTotal.push([`Desconto (${qtdFmt(descPerc)}%):`, -descValor])
 
-  const alturaCaixa = 15 * linhasTotal.length + 33
+  const alturaCaixa = 15 * linhasTotal.length + 33 + (pedido.parcial ? 10 : 0)
   if (y - alturaCaixa < 120) y = novaPagina()
   page.drawRectangle({
     x: width - 270,
@@ -275,14 +275,17 @@ export async function gerarPdfPedidoFornecedor(
   }
   ty -= 3
   const tTotal = brl(total)
-  page.drawText('Valor Total:', { x: width - 250, y: ty, size: 12, font: bold })
+  page.drawText(pedido.parcial ? 'Valor do saldo:' : 'Valor Total:', { x: width - 250, y: ty, size: 12, font: bold })
   page.drawText(tTotal, { x: direita - bold.widthOfTextAtSize(tTotal, 12), y: ty, size: 12, font: bold })
+  if (pedido.parcial) page.drawText('(itens que faltam)', { x: width - 250, y: ty - 11, size: 8, font })
 
   // ---------- Condições de pagamento ----------
   y -= alturaCaixa + 10
-  page.drawText('Condições de Pagamento:', { x: width - 250, y, size: 8, font })
-  y -= 14
-  if (parcelas.length > 0) {
+  if (!pedido.parcial) page.drawText('Condições de Pagamento:', { x: width - 250, y, size: 8, font })
+  if (!pedido.parcial) y -= 14
+  if (pedido.parcial) {
+    // SPEC-291: saldo do pedido não imprime parcelas
+  } else if (parcelas.length > 0) {
     for (const p of parcelas) {
       if (y < 60) y = novaPagina()
       page.drawText(`Parcela ${p.numero_parcela}: ${dia(p.data_vencimento)} — ${brl(Number(p.valor) || 0)}`, {
@@ -309,6 +312,14 @@ export async function gerarPdfPedidoFornecedor(
   page.drawText('OBSERVAÇÕES:', { x: 40, y, size: 9, font: bold })
   y -= 15
   const obs = [
+    ...(pedido.parcial
+      ? [
+          'Saldo do pedido: constam somente as quantidades que ainda faltam entregar.',
+          ...((pedido.notasRecebidas ?? []).length > 0
+            ? [`Já recebido (nota fiscal): ${(pedido.notasRecebidas as string[]).join(', ')}.`]
+            : []),
+        ]
+      : []),
     ...(pedido.observacao ? quebrar(pedido.observacao, 8, width - 80) : []),
     `Favor mencionar o número do pedido (${limpo(pedido.numero)}) na nota fiscal.`,
     'Confirmar quantidades, preços e prazo de entrega antes do faturamento.',

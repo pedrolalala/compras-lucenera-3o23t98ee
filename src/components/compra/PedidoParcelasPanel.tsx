@@ -17,6 +17,9 @@ import {
   getParcelasPedidoCompra,
   gerarParcelasPedidoCompra,
   atualizarParcelaPedidoCompra,
+  getConsumidoPedido,
+  restanteDasParcelas,
+  type ConsumidoPedido,
   type PedidoCompraParcela,
 } from '@/services/pedido-compra'
 
@@ -25,6 +28,10 @@ interface Props {
   pedidoNumero: string
   condicoesPagamento: string | null
   valorTotal: number | null
+  /** SPEC-291: pedido "Concluído parcialmente" — mostra o restante de cada parcela */
+  parcial?: boolean
+  /** SPEC-291: valor a receber (custo x o que falta), para comparar com a soma do restante */
+  aReceber?: number | null
 }
 
 interface EdicaoParcela {
@@ -42,6 +49,8 @@ export function PedidoParcelasPanel({
   pedidoNumero,
   condicoesPagamento,
   valorTotal,
+  parcial = false,
+  aReceber = null,
 }: Props) {
   const { toast } = useToast()
   const [parcelas, setParcelas] = useState<PedidoCompraParcela[]>([])
@@ -49,18 +58,29 @@ export function PedidoParcelasPanel({
   const [gerando, setGerando] = useState(false)
   const [edicao, setEdicao] = useState<EdicaoParcela | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [consumo, setConsumo] = useState<ConsumidoPedido | null>(null)
+  const [erroRestante, setErroRestante] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
     try {
       const data = await getParcelasPedidoCompra(pedidoId)
       setParcelas(data)
+      setConsumo(null)
+      setErroRestante(false)
+      if (parcial) {
+        try {
+          setConsumo(await getConsumidoPedido(pedidoId))
+        } catch {
+          setErroRestante(true)
+        }
+      }
     } catch {
       toast({ title: 'Erro', description: 'Falha ao carregar parcelas.', variant: 'destructive' })
     } finally {
       setLoading(false)
     }
-  }, [pedidoId, toast])
+  }, [pedidoId, parcial, toast])
 
   useEffect(() => {
     carregar()
@@ -126,7 +146,21 @@ export function PedidoParcelasPanel({
   }
 
   const somaParcelas = parcelas.reduce((s, p) => s + p.valor, 0)
-  const divergeDoTotal = valorTotal != null && Math.abs(somaParcelas - valorTotal) > 0.01
+  const restantes = consumo ? restanteDasParcelas(parcelas, consumo.consumido) : null
+  const somaRestante = restantes
+    ? Array.from(restantes.values()).reduce((s, v) => s + v, 0)
+    : null
+  // SPEC-291: com NF ou antecipação a diferença para o "a receber" é esperada (impostos/ST da NF) — só informação.
+  // Vermelho só em erro real de cadastro: sem NF nem antecipação e a soma das parcelas difere do valor gravado.
+  const temAbatimento = !!consumo && (consumo.notas.length > 0 || Math.abs(consumo.antecipacao) > 0.005)
+  const diferencaEsperada =
+    restantes && temAbatimento && aReceber != null && Math.abs((somaRestante ?? 0) - aReceber) > 0.01
+  const divergeDoTotal =
+    parcial && erroRestante
+      ? false
+      : restantes && temAbatimento
+        ? false
+        : valorTotal != null && Math.abs(somaParcelas - valorTotal) > 0.01
 
   if (loading) {
     return (
@@ -199,7 +233,18 @@ export function PedidoParcelasPanel({
                       disabled={salvando}
                     />
                   ) : (
-                    <span className="font-medium text-slate-700">{fmtBRL(p.valor)}</span>
+                    <>
+                      <span className="font-medium text-slate-700">
+                        {erroRestante
+                          ? '—'
+                          : restantes && restantes.has(p.id)
+                            ? fmtBRL(restantes.get(p.id)!)
+                            : fmtBRL(p.valor)}
+                      </span>
+                      {restantes && restantes.has(p.id) && Math.abs(restantes.get(p.id)! - p.valor) > 0.005 && (
+                        <span className="block text-[10px] text-slate-400">de {fmtBRL(p.valor)} do pedido</span>
+                      )}
+                    </>
                   )}
                 </TableCell>
                 <TableCell className="text-right text-xs">
@@ -261,20 +306,37 @@ export function PedidoParcelasPanel({
         <TableFooter className="bg-transparent">
           <TableRow className="h-8 hover:bg-transparent">
             <TableCell colSpan={5} className="text-right text-[11px] py-1">
-              <span className="text-slate-500">Soma das parcelas: </span>
-              <span
-                className={
-                  divergeDoTotal ? 'font-semibold text-red-600' : 'font-semibold text-slate-700'
-                }
-              >
-                {fmtBRL(somaParcelas)}
-              </span>
-              {valorTotal != null && (
-                <span className="text-slate-400">
-                  {' '}
-                  {' / '}
-                  {fmtBRL(valorTotal)} do pedido
-                </span>
+              {erroRestante ? (
+                <span className="block text-amber-700">Não foi possível calcular o restante das parcelas</span>
+              ) : (
+                <>
+                  {restantes && consumo && consumo.notas.length > 0 && (
+                    <span className="block text-[11px] text-slate-500 mb-0.5">
+                      já abatido pela NF {consumo.notas.map((n) => `${n.numero_nf} (${fmtBRL(n.valor)})`).join(', ')}
+                      {' — abate da 1ª para a última parcela'}
+                    </span>
+                  )}
+                  <span className="text-slate-500">
+                    {restantes ? 'Soma do que falta pagar: ' : 'Soma das parcelas: '}
+                  </span>
+                  <span
+                    className={
+                      divergeDoTotal ? 'font-semibold text-red-600' : 'font-semibold text-slate-700'
+                    }
+                  >
+                    {fmtBRL(restantes ? (somaRestante ?? 0) : somaParcelas)}
+                  </span>
+                  {restantes && aReceber != null ? (
+                    <span className="text-slate-400"> / {fmtBRL(aReceber)} a receber</span>
+                  ) : (
+                    valorTotal != null && (
+                      <span className="text-slate-400"> / {fmtBRL(valorTotal)} do pedido</span>
+                    )
+                  )}
+                  {diferencaEsperada && (
+                    <span className="block text-[11px] text-slate-400">Diferença = impostos/ST da NF</span>
+                  )}
+                </>
               )}
               <Button
                 size="sm"

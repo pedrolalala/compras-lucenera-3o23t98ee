@@ -5,6 +5,7 @@
 import { supabase } from '@/lib/supabase/client'
 import logoImg from '@/assets/lucenera-vertical-d5520.png'
 import { gerarPdfPedidoFornecedor, type DadosPedidoPdf } from '@/lib/pdf-pedido-fornecedor-desenho'
+import { getConsumidoPedido } from '@/services/pedido-compra'
 import { entregaDoContato, getComprasConfig, resolverEntrega } from '@/services/compras-config'
 
 
@@ -45,7 +46,7 @@ async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
     (supabase as any)
       .from('pedido_compra_itens')
       .select(
-        'id, produto_id, quantidade, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, criado_em, produtos(nome, codigo_produto, referencia, unidade)',
+        'id, produto_id, quantidade, qtd_recebida, custo_unitario, custo_liquido, valor_ipi, valor_st, valor_outras_despesas, criado_em, produtos(nome, codigo_produto, referencia, unidade)',
       )
       .eq('pedido_id', pedidoId)
       .order('criado_em', { ascending: true })
@@ -66,6 +67,25 @@ async function carregarDados(pedidoId: string): Promise<DadosPedidoPdf> {
 
   // SPEC-236: endereço próprio do fornecedor (ex.: Manoella/Islight → showroom) ou o padrão do estoque
   const entrega = resolverEntrega(entregaDoContato(fornecedor), config)
+
+  // SPEC-291: pedido "Concluído parcialmente" sai só com o que falta (quantidade = falta) sem a tabela de parcelas.
+  // valor_total gravado não muda; o PDF recalcula o total a partir do que falta.
+  if (pedido.status === 'parcialmente_recebido') {
+    const itensFalta = (itens as any[])
+      .map((i) => ({ ...i, quantidade: Math.max(0, (Number(i.quantidade) || 0) - (Number(i.qtd_recebida) || 0)) }))
+      .filter((i) => i.quantidade > 0)
+    // Falha ao ler as notas/antecipações: aborta (o chamador mostra o erro); nunca sai PDF com valor cheio.
+    const { notas } = await getConsumidoPedido(pedidoId)
+    return {
+      pedido: { ...pedido, valor_total: null, parcial: true, notasRecebidas: notas.map((n) => n.numero_nf) },
+      empresa,
+      fornecedor,
+      comprador,
+      itens: itensFalta,
+      parcelas: [],
+      entrega,
+    }
+  }
   return { pedido, empresa, fornecedor, comprador, itens, parcelas, entrega }
 }
 

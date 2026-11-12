@@ -56,6 +56,8 @@ import {
   aprovarPedidoCompra,
   voltarPedidoParaEdicao,
   atualizarPrevisaoPedido,
+  getResumoParcialPedidos,
+  type ResumoParcialPedido,
   STATUS_PEDIDO_COMPRA,
   STATUS_PEDIDO_COMPRA_ABERTO,
   STATUS_PEDIDO_COMPRA_CANCELAVEL,
@@ -121,6 +123,9 @@ export default function PedidosCompra() {
   const [filaPagamento, setFilaPagamento] = useState<PedidoCompraRow[]>([])
   // SPEC-290: selo "Pago antecipado (dup. X)" e aviso "Pago — falta vincular o pagamento" por pedido
   const [pagoInfo, setPagoInfo] = useState<Map<string, PagoAntecipadoInfo>>(new Map())
+  // SPEC-291: "A receber" / recebido dos pedidos em "Concluído parcialmente"
+  const [resumoParcial, setResumoParcial] = useState<Map<string, ResumoParcialPedido>>(new Map())
+  const [resumoParcialErro, setResumoParcialErro] = useState(false)
   const [pagamentoAdiado, setPagamentoAdiado] = useState<Set<string>>(new Set())
 
   // SPEC-211: PDF do pedido para enviar ao fornecedor (mesmo layout do orçamento).
@@ -183,6 +188,27 @@ export default function PedidosCompra() {
       }
       setPagoInfo(m)
     })
+    return () => {
+      ativo = false
+    }
+  }, [rows])
+
+  // SPEC-291: valor a receber dos pedidos parcialmente recebidos (só leitura de pedido_compra_itens)
+  useEffect(() => {
+    const parciais = rows.filter((r) => r.status === 'parcialmente_recebido')
+    setResumoParcialErro(false)
+    if (parciais.length === 0) {
+      setResumoParcial(new Map())
+      return
+    }
+    let ativo = true
+    getResumoParcialPedidos(parciais)
+      .then((m) => ativo && setResumoParcial(m))
+      .catch(() => {
+        if (!ativo) return
+        setResumoParcial(new Map())
+        setResumoParcialErro(true)
+      })
     return () => {
       ativo = false
     }
@@ -602,9 +628,25 @@ export default function PedidosCompra() {
                           ))}
                       </TableCell>
                       <TableCell className="text-right align-middle py-2">
-                        <span className="text-sm font-semibold text-slate-700">
-                          {fmtBRL(r.valor_total)}
-                        </span>
+                        {r.status === 'parcialmente_recebido' && resumoParcialErro ? (
+                          <>
+                            <span className="text-sm font-semibold text-slate-700">{fmtBRL(r.valor_total)}</span>
+                            <span className="block text-[11px] text-slate-400">A receber indisponível</span>
+                          </>
+                        ) : r.status === 'parcialmente_recebido' && resumoParcial.get(r.id) ? (
+                          <>
+                            <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">
+                              A receber: {fmtBRL(resumoParcial.get(r.id)!.aReceber)}
+                            </span>
+                            <span className="block text-[11px] text-slate-500 whitespace-nowrap">
+                              Pedido {fmtBRL(r.valor_total)} · recebido {fmtBRL(resumoParcial.get(r.id)!.recebido)}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-sm font-semibold text-slate-700">
+                            {fmtBRL(r.valor_total)}
+                          </span>
+                        )}
                         {/* SPEC-263 C: valor de tabela x negociado */}
                         {r.valor_tabela != null && r.valor_total != null && r.valor_tabela - r.valor_total > 0.005 && (
                           <span className="block text-[11px] text-emerald-700 whitespace-nowrap">
@@ -730,12 +772,14 @@ export default function PedidosCompra() {
                   const detailRow = isExpanded ? (
                     <TableRow key={`${r.id}-detalhe`} className="hover:bg-transparent">
                       <TableCell colSpan={10} className="p-0">
-                        <PedidoItensResumo pedidoId={r.id} />
+                        <PedidoItensResumo pedidoId={r.id} parcial={r.status === 'parcialmente_recebido'} />
                         <PedidoParcelasPanel
                           pedidoId={r.id}
                           pedidoNumero={r.numero}
                           condicoesPagamento={r.condicoes_pagamento}
                           valorTotal={r.valor_total}
+                          parcial={r.status === 'parcialmente_recebido'}
+                          aReceber={resumoParcial.get(r.id)?.aReceber ?? null}
                         />
                       </TableCell>
                     </TableRow>
