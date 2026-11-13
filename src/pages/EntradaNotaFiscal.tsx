@@ -648,7 +648,8 @@ export default function EntradaNotaFiscal() {
     !vincAcima &&
     pagoOk &&
     usado + vincTotal <= valorNota + 0.001 &&
-    Math.abs(valorNota - usadoTotal - somaParcelas) <= 0.01 &&
+    // arredonda em centavos: 7441,97 - 7441,96 dá 0,01000000000022 em ponto flutuante e travava o botão (13/11)
+    Math.abs(r2(valorNota - usadoTotal - somaParcelas)) <= 0.01 &&
     parcelas.every((p) => p.data_vencimento && lerValor(p.valor) > 0)
   // SPEC-220: só registra com vínculos dentro do limite e chave válida (SPEC-222: o total é o dos itens)
   const entradaOk = financeiroOk && vinculosOk && chaveOk && lerValor(desconto) >= 0
