@@ -209,6 +209,8 @@ export default function EntradaNotaFiscal() {
   const [ipiNota, setIpiNota] = useState('')
   const [ipiEditado, setIpiEditado] = useState(false)
   const [despesasAcessorias, setDespesasAcessorias] = useState('')
+  // SPEC-307 A2: frete da nota (campo próprio, separado das despesas acessórias)
+  const [frete, setFrete] = useState('')
   // Apropriação da nota: compra e revenda (padrão), industrialização ou garantia.
   const [apropriacoes, setApropriacoes] = useState<ApropriacaoCompra[]>([])
   const [apropriacaoId, setApropriacaoId] = useState('')
@@ -472,6 +474,7 @@ export default function EntradaNotaFiscal() {
     setIpiNota('')
     setIpiEditado(false)
     setDespesasAcessorias('')
+    setFrete('')
     setEntregas([])
     setVinculos({})
     setVinculosEditados({})
@@ -528,7 +531,7 @@ export default function EntradaNotaFiscal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modo, pedido, totaisItens.ipi, totaisItens.st, ipiEditado, stEditado])
   const totalCalculado = r2(
-    r2(totaisItens.produtos) + lerValor(ipiNota) + lerValor(valorSt) - lerValor(desconto) + lerValor(despesasAcessorias),
+    r2(totaisItens.produtos) + lerValor(ipiNota) + lerValor(valorSt) - lerValor(desconto) + lerValor(frete) + lerValor(despesasAcessorias),
   )
 
   // SPEC-220: para quem vai o que chegou — sugestão pelos L de origem do pedido até a pessoa mexer.
@@ -719,6 +722,7 @@ export default function EntradaNotaFiscal() {
           data_entrada: dataEntrada || null,
           valor_desconto: lerValor(desconto) || null,
           valor_despesas_acessorias: lerValor(despesasAcessorias) || null,
+          valor_frete: lerValor(frete) || null,
           plano_contas_id: apropriacaoId || null,
           vinculos: Object.entries(vinculos).flatMap(([produto_id, porL]) =>
             Object.entries(porL)
@@ -1380,7 +1384,7 @@ export default function EntradaNotaFiscal() {
                 // despesas acessórias (em R$) editáveis; o total da nota sai daqui.
                 <div className="sm:col-span-4 rounded-lg border border-slate-200 p-3 text-xs">
                   <p className="mb-2 font-semibold uppercase tracking-wide text-slate-600">Resumo da nota</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
+                  <div className="grid grid-cols-2 sm:grid-cols-7 gap-3 items-end">
                     <div>
                       <p className="text-slate-500 mb-1">Valor total dos produtos</p>
                       <p className="h-8 flex items-center font-semibold tabular-nums">
@@ -1398,6 +1402,7 @@ export default function EntradaNotaFiscal() {
                           setStEditado(true)
                         }],
                         ['Desconto', desconto, setDesconto],
+                        ['Frete', frete, setFrete],
                         ['Despesas acessórias', despesasAcessorias, setDespesasAcessorias],
                       ] as [string, string, (x: string) => void][]
                     ).map(([rotulo, v, mudar]) => (

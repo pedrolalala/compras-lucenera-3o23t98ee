@@ -147,6 +147,7 @@ export async function gerarPdfEspelhoEntrada(e: EspelhoEntrada): Promise<Uint8Ar
     ['Valor da nota', n.valor],
     ['ST', n.valor_st],
     ['Desconto', n.valor_desconto],
+    ['Frete', n.valor_frete],
     ['Despesas acessórias', n.valor_despesas_acessorias],
     ['Pagamento antecipado usado', e.antecipacao],
   ]

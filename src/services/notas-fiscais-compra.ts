@@ -160,6 +160,7 @@ export interface EspelhoEntrada {
     valor_st: number | null
     valor_desconto: number | null
     valor_despesas_acessorias: number | null
+    valor_frete: number | null
     observacao: string | null
     cancelada_em: string | null
     criado_em: string
@@ -341,6 +342,8 @@ export interface RegistrarEntradaNotaInput {
   data_entrada: string | null
   valor_desconto: number | null
   valor_despesas_acessorias: number | null
+  /** SPEC-307: frete da nota (campo próprio). */
+  valor_frete: number | null
   /** O que chegou de cada peça vai da entrega futura para a reserva destes L. */
   vinculos: Array<{ produto_id: string; projeto_item_id: string; quantidade: number }>
   /** Apropriação (plano de contas) da nota; vazio = COMPRAS - REVENDA. */
@@ -406,6 +409,7 @@ export async function registrarEntradaNotaCompra(input: RegistrarEntradaNotaInpu
       data_entrada: input.data_entrada,
       valor_desconto: input.valor_desconto,
       valor_despesas_acessorias: input.valor_despesas_acessorias,
+      valor_frete: input.valor_frete,
       plano_contas_id: input.plano_contas_id || null,
     },
     p_parcelas: input.parcelas,
