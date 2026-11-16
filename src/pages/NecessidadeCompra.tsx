@@ -38,6 +38,7 @@ import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { NecessidadeDetailsPanel } from '@/components/necessidade/NecessidadeDetailsPanel'
 import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
+import { FornecedorDoItemPopover } from '@/components/compra/FornecedorDoItemPopover'
 import { NecessidadeCompraDetalhe } from '@/components/compra/NecessidadeCompraDetalhe'
 import { getEmpresas, type Empresa } from '@/services/pedido-compra'
 import {
@@ -230,7 +231,28 @@ export default function NecessidadeCompra() {
       g.linhas.push(l)
       m.set(l.fornecedor_id, g)
     }
-    return Array.from(m.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    return Array.from(m.values()).sort((a, b) =>
+      !a.id ? 1 : !b.id ? -1 : a.nome.localeCompare(b.nome, 'pt-BR'),
+    )
+  }, [linhasCarrinho])
+  const semFornecedor = gruposFornecedor.some((g) => !g.id)
+  const [mostrarForn, setMostrarForn] = useState(false)
+  // SPEC-317: troca o fornecedor de todas as linhas de um produto no pedido em montagem
+  function trocarFornecedorProduto(produtoId: string, f: { id: string; nome: string }) {
+    setCarrinho((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).map(([k, l]) =>
+          l.produto_id === produtoId ? [k, { ...l, fornecedor_id: f.id, fornecedor_nome: f.nome }] : [k, l],
+        ),
+      ),
+    )
+  }
+  const produtosDoCarrinho = useMemo(() => {
+    const m = new Map<string, LinhaCarrinho>()
+    linhasCarrinho.forEach((l) => {
+      if (!m.has(l.produto_id)) m.set(l.produto_id, l)
+    })
+    return Array.from(m.values())
   }, [linhasCarrinho])
   const fornecedorCarrinho = gruposFornecedor[0] ? { id: gruposFornecedor[0].id, nome: gruposFornecedor[0].nome } : null
   const lsNoCarrinho = useMemo(
@@ -242,10 +264,6 @@ export default function NecessidadeCompra() {
     [linhasCarrinho],
   )
 
-  function fornecedorConfere(fornecedorId: string | null) {
-    return !!fornecedorId // SPEC-310: fornecedores diferentes podem ficar no mesmo pedido em montagem
-  }
-
   // Linhas que o produto inteiro põe no pedido: os L com saldo (da empresa filtrada) ou, sem L,
   // o produto inteiro com o pendente total.
   function linhasDoProduto(row: NecessidadeCompraRow): LinhaCarrinho[] {
@@ -253,7 +271,7 @@ export default function NecessidadeCompra() {
       (i) => selectedEmpresa === 'all' || i.empresa_id === selectedEmpresa,
     )
     if (ls.length > 0) return ls.map(linhaDoL).filter(Boolean) as LinhaCarrinho[]
-    if (!row.fornecedor_id || selectedEmpresa !== 'all') return []
+    if (selectedEmpresa !== 'all') return []
     return [
       {
         chave: `p:${row.produto_id}`,
@@ -265,7 +283,7 @@ export default function NecessidadeCompra() {
         l_fixo: null,
         pendente_item: row.pendente,
         preco_custo: row.preco_custo,
-        fornecedor_id: row.fornecedor_id,
+        fornecedor_id: row.fornecedor_id ?? '',
         fornecedor_nome: row.fornecedor_nome ?? '',
         empresa_id: null,
         empresa_nome: null,
@@ -280,7 +298,6 @@ export default function NecessidadeCompra() {
       )
       return
     }
-    if (!fornecedorConfere(row.fornecedor_id)) return
     const novas = linhasDoProduto(row)
     if (novas.length === 0) return
     setCarrinho((prev) => ({ ...prev, ...Object.fromEntries(novas.map((l) => [l.chave, l])) }))
@@ -297,15 +314,7 @@ export default function NecessidadeCompra() {
       return
     }
     const linha = linhaDoL(item)
-    if (!linha) {
-      toast({
-        title: 'Sem fornecedor',
-        description: 'Este produto/marca não tem fornecedor cadastrado.',
-        variant: 'destructive',
-      })
-      return
-    }
-    if (!fornecedorConfere(linha.fornecedor_id)) return
+    if (!linha) return
     // L de um produto que estava inteiro no pedido substitui a linha do produto inteiro
     setCarrinho((prev) => {
       const next = { ...prev }
@@ -317,7 +326,7 @@ export default function NecessidadeCompra() {
 
   // Reuniao 04/08/2026: Debora filtrou por marca e queria selecionar todos de uma vez. Junta no
   // pedido os produtos filtrados do mesmo fornecedor — os de outro fornecedor ficam de fora com aviso.
-  const selecionaveisFiltrados = filteredRows.filter((r) => r.fornecedor_id)
+  const selecionaveisFiltrados = filteredRows
   const todosFiltradosSelecionados =
     selecionaveisFiltrados.length > 0 &&
     selecionaveisFiltrados.every((r) => produtosNoCarrinho.has(r.produto_id))
@@ -388,7 +397,7 @@ export default function NecessidadeCompra() {
               <div className="text-sm text-emerald-900">
                 <span className="font-semibold">Pedido em montagem:</span>{' '}
                 {linhasCarrinho.length} linha(s) de {produtosNoCarrinho.size} produto(s) ·{' '}
-                {gruposFornecedor.map((g) => g.nome).join(' + ')}
+                {gruposFornecedor.map((g) => g.nome || 'SEM FORNECEDOR').join(' + ')}
                 {(() => {
                   const emp = Array.from(
                     new Set(linhasCarrinho.map((l) => l.empresa_nome).filter(Boolean)),
@@ -407,7 +416,16 @@ export default function NecessidadeCompra() {
                   Limpar
                 </Button>
                 <Button
+                  variant="outline"
                   size="sm"
+                  onClick={() => setMostrarForn((v) => !v)}
+                >
+                  Fornecedor por produto
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={semFornecedor}
+                  title={semFornecedor ? 'Escolha o fornecedor dos produtos marcados em vermelho' : undefined}
                   onClick={() => setFecharPedidoOpen(true)}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
@@ -417,6 +435,22 @@ export default function NecessidadeCompra() {
                     : `Fechar pedido (${linhasCarrinho.length})`}
                 </Button>
               </div>
+              {mostrarForn && (
+                <div className="basis-full mt-1 max-h-56 overflow-auto rounded-lg bg-white/70 border border-emerald-100 divide-y divide-emerald-100">
+                  {produtosDoCarrinho.map((l) => (
+                    <div key={l.produto_id} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                      <span className="truncate">
+                        <span className="font-mono text-slate-500 mr-1">{l.produto_codigo ?? '-'}</span>
+                        {l.produto}
+                      </span>
+                      <FornecedorDoItemPopover
+                        nome={l.fornecedor_nome}
+                        onEscolher={(f) => trocarFornecedorProduto(l.produto_id, f)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -596,12 +630,11 @@ export default function NecessidadeCompra() {
                               >
                                 <Checkbox
                                   checked={produtosNoCarrinho.has(r.produto_id)}
-                                  disabled={!r.fornecedor_id}
                                   onCheckedChange={() => toggleSelect(r)}
                                   title={
                                     r.fornecedor_id
                                       ? 'Pôr no pedido todos os L deste produto (ou abra "Projetos" e marque só os L que quiser)'
-                                      : 'Sem fornecedor resolvido (produto/marca sem fornecedor cadastrado)'
+                                      : 'Sem fornecedor cadastrado — entra no pedido e você escolhe o fornecedor lá em cima'
                                   }
                                 />
                               </TableCell>
@@ -691,7 +724,6 @@ export default function NecessidadeCompra() {
                                     size="sm"
                                     variant={produtosNoCarrinho.has(r.produto_id) ? 'default' : 'outline'}
                                     className="h-7 px-2 text-xs"
-                                    disabled={!r.fornecedor_id}
                                     onClick={() => toggleSelect(r)}
                                   >
                                     <ShoppingCart className="w-3.5 h-3.5 mr-1" />

@@ -82,7 +82,7 @@ export interface LinhaCarrinho {
 }
 
 export function linhaDoL(it: NecessidadeCompraItemRow): LinhaCarrinho | null {
-  if (!it.fornecedor_id) return null
+  // SPEC-317: sem fornecedor cadastrado a linha entra mesmo assim; o fornecedor se escolhe no pedido em montagem
   return {
     chave: `l:${it.projeto_item_id}`,
     projeto_item_id: it.projeto_item_id,
@@ -93,7 +93,7 @@ export function linhaDoL(it: NecessidadeCompraItemRow): LinhaCarrinho | null {
     l_fixo: it.l_fixo,
     pendente_item: Number(it.pendente_item) || 0,
     preco_custo: it.preco_custo,
-    fornecedor_id: it.fornecedor_id,
+    fornecedor_id: it.fornecedor_id ?? '',
     fornecedor_nome: it.fornecedor_nome ?? '',
     empresa_id: it.empresa_id,
     empresa_nome: it.empresa_nome,
