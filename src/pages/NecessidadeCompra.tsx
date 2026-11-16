@@ -221,9 +221,18 @@ export default function NecessidadeCompra() {
 
   // SPEC-209 A: linhas do pedido em montagem
   const linhasCarrinho = useMemo(() => Object.values(carrinho), [carrinho])
-  const fornecedorCarrinho = linhasCarrinho[0]
-    ? { id: linhasCarrinho[0].fornecedor_id, nome: linhasCarrinho[0].fornecedor_nome }
-    : null
+  // SPEC-310: o pedido em montagem pode juntar itens de VÁRIOS fornecedores (marca que compra de mais de um).
+  // Ao fechar, sai um pedido de compra por fornecedor, um depois do outro (cada um com seu PDF, financeiro e NF).
+  const gruposFornecedor = useMemo(() => {
+    const m = new Map<string, { id: string; nome: string; linhas: LinhaCarrinho[] }>()
+    for (const l of linhasCarrinho) {
+      const g = m.get(l.fornecedor_id) ?? { id: l.fornecedor_id, nome: l.fornecedor_nome, linhas: [] }
+      g.linhas.push(l)
+      m.set(l.fornecedor_id, g)
+    }
+    return Array.from(m.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [linhasCarrinho])
+  const fornecedorCarrinho = gruposFornecedor[0] ? { id: gruposFornecedor[0].id, nome: gruposFornecedor[0].nome } : null
   const lsNoCarrinho = useMemo(
     () => new Set(linhasCarrinho.map((l) => l.projeto_item_id).filter(Boolean) as string[]),
     [linhasCarrinho],
@@ -234,16 +243,7 @@ export default function NecessidadeCompra() {
   )
 
   function fornecedorConfere(fornecedorId: string | null) {
-    if (!fornecedorId) return false
-    if (fornecedorCarrinho && fornecedorCarrinho.id !== fornecedorId) {
-      toast({
-        title: 'Fornecedor diferente',
-        description: `O pedido em montagem é de ${fornecedorCarrinho.nome}. Feche ou limpe esse pedido antes de juntar itens de outro fornecedor.`,
-        variant: 'destructive',
-      })
-      return false
-    }
-    return true
+    return !!fornecedorId // SPEC-310: fornecedores diferentes podem ficar no mesmo pedido em montagem
   }
 
   // Linhas que o produto inteiro põe no pedido: os L com saldo (da empresa filtrada) ou, sem L,
@@ -328,15 +328,13 @@ export default function NecessidadeCompra() {
       return
     }
     if (selecionaveisFiltrados.length === 0) return
-    const fornecedorAlvo = fornecedorCarrinho?.id ?? selecionaveisFiltrados[0].fornecedor_id
-    const compativel = selecionaveisFiltrados.filter((r) => r.fornecedor_id === fornecedorAlvo)
-    const ignorados = selecionaveisFiltrados.length - compativel.length
-    const novas = compativel.flatMap((r) => linhasDoProduto(r))
+    const novas = selecionaveisFiltrados.flatMap((r) => linhasDoProduto(r))
     setCarrinho((prev) => ({ ...prev, ...Object.fromEntries(novas.map((l) => [l.chave, l])) }))
-    if (ignorados > 0) {
+    const nForn = new Set(selecionaveisFiltrados.map((r) => r.fornecedor_id)).size
+    if (nForn > 1) {
       toast({
-        title: `${compativel.length} produto(s) no pedido`,
-        description: `${ignorados} produto(s) de outro fornecedor ficaram de fora — feche este pedido primeiro ou filtre por marca.`,
+        title: `${selecionaveisFiltrados.length} produto(s) no pedido`,
+        description: `São ${nForn} fornecedores: ao fechar, sai um pedido de compra para cada um.`,
       })
     }
   }
@@ -390,7 +388,7 @@ export default function NecessidadeCompra() {
               <div className="text-sm text-emerald-900">
                 <span className="font-semibold">Pedido em montagem:</span>{' '}
                 {linhasCarrinho.length} linha(s) de {produtosNoCarrinho.size} produto(s) ·{' '}
-                {fornecedorCarrinho?.nome}
+                {gruposFornecedor.map((g) => g.nome).join(' + ')}
                 {(() => {
                   const emp = Array.from(
                     new Set(linhasCarrinho.map((l) => l.empresa_nome).filter(Boolean)),
@@ -414,7 +412,9 @@ export default function NecessidadeCompra() {
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   <PackageCheck className="w-4 h-4 mr-2" />
-                  Fechar pedido ({linhasCarrinho.length})
+                  {gruposFornecedor.length > 1
+                    ? `Fechar ${gruposFornecedor.length} pedidos (${linhasCarrinho.length})`
+                    : `Fechar pedido (${linhasCarrinho.length})`}
                 </Button>
               </div>
             </div>
@@ -721,14 +721,25 @@ export default function NecessidadeCompra() {
           </div>
 
           <ModalGerarCompraItemOrcamento
+            key={fornecedorCarrinho?.id ?? 'sem-fornecedor'}
             open={fecharPedidoOpen}
             onOpenChange={setFecharPedidoOpen}
-            itens={linhasCarrinho}
+            itens={gruposFornecedor[0]?.linhas ?? []}
             fornecedorId={fornecedorCarrinho?.id ?? ''}
             fornecedorNome={fornecedorCarrinho?.nome ?? ''}
             onSuccess={() => {
-              setFecharPedidoOpen(false)
-              setCarrinho({})
+              // SPEC-310: fecha o pedido do 1º fornecedor e, se sobrar outro, já abre o próximo
+              const feitas = new Set((gruposFornecedor[0]?.linhas ?? []).map((l) => l.chave))
+              const proximo = gruposFornecedor[1]
+              setCarrinho((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !feitas.has(k))))
+              if (proximo) {
+                toast({
+                  title: `Pedido de ${gruposFornecedor[0]?.nome} gerado`,
+                  description: `Agora o pedido de ${proximo.nome} (faltam ${gruposFornecedor.length - 1}).`,
+                })
+              } else {
+                setFecharPedidoOpen(false)
+              }
               loadData()
             }}
           />
