@@ -88,6 +88,7 @@ export function EspelhoEntradaDialog({ notaId, onFechar }: { notaId: string | nu
                     <tr key={it.produto_id} className="border-b border-slate-100 align-top">
                       <td className="py-1.5 pr-2">
                         <span className="font-mono text-slate-400 mr-1">{it.codigo}</span>
+                        {it.referencia && <span className="font-mono font-semibold mr-1">{it.referencia}</span>}
                         {it.produto}
                       </td>
                       <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{qtd(it.quantidade)}</td>

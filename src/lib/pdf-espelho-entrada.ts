@@ -97,19 +97,20 @@ export async function gerarPdfEspelhoEntrada(e: EspelhoEntrada): Promise<Uint8Ar
   // Itens e para quem foi
   texto('O que chegou e para quem foi', M, 11, bold)
   y -= 16
+  // SPEC-314: ordem pedida pelo Matheus — código interno, referência, produto, quantidade (sem valor)
   texto('Código', M, 8, bold)
-  texto('Produto', M + 55, 8, bold)
-  direita('Qtd.', M + 400, 8, bold)
-  direita('Vl. unit.', W - M, 8, bold)
+  texto('Referência', M + 50, 8, bold)
+  texto('Produto', M + 130, 8, bold)
+  direita('Qtd.', W - M, 8, bold)
   y -= 5
   linha()
   y -= 10
   for (const it of e.itens) {
     novaPaginaSePreciso(30)
-    texto(it.codigo ?? '-', M, 9, bold)
-    texto(it.produto, M + 55, 9, bold, rgb(0, 0, 0), 300)
-    direita(qtd(Number(it.quantidade)), M + 400, 9, bold)
-    direita(it.valor_unitario != null ? brl(it.valor_unitario) : '-', W - M)
+    texto(it.codigo ?? '-', M, 9, bold, rgb(0, 0, 0), 46)
+    texto(it.referencia ?? '-', M + 50, 9, bold, rgb(0, 0, 0), 76)
+    texto(it.produto, M + 130, 9, font, rgb(0, 0, 0), 300)
+    direita(qtd(Number(it.quantidade)), W - M, 9, bold)
     y -= 12
     const vinc = e.vinculos.filter((v) => v.produto_id === it.produto_id)
     let vinculado = 0
@@ -118,20 +119,20 @@ export async function gerarPdfEspelhoEntrada(e: EspelhoEntrada): Promise<Uint8Ar
       vinculado += Number(v.quantidade)
       texto(
         `-> ${v.venda_numero ?? v.orcamento_numero ?? '-'}  ·  ${v.cliente_nome ?? '-'}  ·  ${v.l_fixo ?? '-'}${v.projeto_codigo ? `  ·  projeto ${v.projeto_codigo}` : ''}`,
-        M + 65,
+        M + 130,
         8.5,
         font,
         rgb(0, 0, 0),
-        320,
+        340,
       )
-      direita(qtd(Number(v.quantidade)), M + 400, 8.5)
+      direita(qtd(Number(v.quantidade)), W - M, 8.5)
       y -= 11
     }
     const livre = Number(it.quantidade) - vinculado
     if (livre > 0.0001) {
       novaPaginaSePreciso(14)
-      texto('-> Livre no estoque (sem cliente)', M + 65, 8.5, font, cinza)
-      direita(qtd(livre), M + 400, 8.5)
+      texto('-> Livre no estoque (sem cliente)', M + 130, 8.5, font, cinza)
+      direita(qtd(livre), W - M, 8.5)
       y -= 11
     }
     y -= 4

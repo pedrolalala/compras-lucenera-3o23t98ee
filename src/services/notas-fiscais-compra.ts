@@ -174,6 +174,7 @@ export interface EspelhoEntrada {
   itens: Array<{
     produto_id: string
     codigo: number | null
+    referencia?: string | null
     produto: string
     quantidade: number
     valor_unitario: number | null
