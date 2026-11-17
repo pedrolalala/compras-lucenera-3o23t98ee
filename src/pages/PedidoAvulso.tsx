@@ -10,13 +10,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Loader2, PackageCheck, Plus, Search, Trash2, X } from 'lucide-react'
+import { Loader2, PackageCheck, Plus, Search, Target, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { buscarProdutosParaPedido, type EstoqueProdutoRow } from '@/services/estoque-produtos'
 import { getFornecedores, type Fornecedor } from '@/services/pedido-compra'
 import type { LinhaCarrinho } from '@/services/necessidade-compra-item'
 import { ModalGerarCompraItemOrcamento } from '@/components/compra/ModalGerarCompraItemOrcamento'
+import { ReservaProjetoDialog } from '@/components/compra/ReservaProjetoDialog'
+import type { ReservaEscolhida } from '@/services/reserva-projeto'
 
 // SPEC-222 F1 (reunião Vinicius 22/10): "Pedido de compra avulso" — compra sem necessidade amarrada
 // (estoque de giro, caixa fechada, fornecedor ofereceu desconto para fechar um valor). Qualquer produto do
@@ -44,6 +46,9 @@ export default function PedidoAvulso() {
   const [resultados, setResultados] = useState<EstoqueProdutoRow[]>([])
   const [itens, setItens] = useState<ItemAvulso[]>([])
   const [fecharAberto, setFecharAberto] = useState(false)
+  // SPEC-299: compra adiantada — reserva da quantidade para o projeto de uma venda que ainda não passou
+  const [reservas, setReservas] = useState<Record<string, ReservaEscolhida[]>>({})
+  const [reservandoId, setReservandoId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!buscaForn.trim()) {
@@ -112,7 +117,9 @@ export default function PedidoAvulso() {
         </h1>
         <p className="text-slate-500 text-sm mt-1">
           Compra sem venda amarrada (estoque, caixa fechada, oferta do fornecedor) — qualquer produto do
-          cadastro. Para comprar o que as vendas precisam, use a Necessidade de Compra.
+          cadastro. Para comprar o que as vendas precisam, use a Necessidade de Compra. Se está adiantando a
+          compra de uma venda fechada que ainda não passou, use o alvo (⌖) da linha para reservar a quantidade
+          para o projeto — assim ela não cobre a necessidade de outras vendas.
         </p>
       </div>
 
@@ -255,6 +262,14 @@ export default function PedidoAvulso() {
                   <div className="flex-1 min-w-0 text-sm">
                     <span className="font-mono text-xs text-slate-400 mr-1">{i.produto.produto_codigo}</span>
                     <span className="line-clamp-2">{i.produto.produto}</span>
+                    {(reservas[i.produto.produto_id]?.length ?? 0) > 0 && (
+                      <span className="block text-[11px] font-medium text-emerald-700">
+                        Compra adiantada:{' '}
+                        {reservas[i.produto.produto_id]
+                          .map((r) => `${r.quantidade} un. → projeto ${r.projeto_codigo}`)
+                          .join(' · ')}
+                      </span>
+                    )}
                   </div>
                   <Input
                     inputMode="decimal"
@@ -271,10 +286,28 @@ export default function PedidoAvulso() {
                   <Button
                     size="icon"
                     variant="ghost"
+                    title="Reservar para o projeto de uma venda que ainda não passou"
+                    className={cn(
+                      'h-8 w-8',
+                      (reservas[i.produto.produto_id]?.length ?? 0) > 0
+                        ? 'text-emerald-600'
+                        : 'text-slate-400 hover:text-emerald-600',
+                    )}
+                    onClick={() => setReservandoId(i.produto.produto_id)}
+                  >
+                    <Target className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
                     className="h-8 w-8 text-slate-400 hover:text-red-600"
-                    onClick={() =>
+                    onClick={() => {
                       setItens((prev) => prev.filter((x) => x.produto.produto_id !== i.produto.produto_id))
-                    }
+                      setReservas((r) => {
+                        const { [i.produto.produto_id]: _fora, ...resto } = r
+                        return resto
+                      })
+                    }}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>
@@ -310,11 +343,30 @@ export default function PedidoAvulso() {
         itens={linhasCarrinho}
         fornecedorId={fornecedor?.id ?? ''}
         fornecedorNome={fornecedor?.nome ?? ''}
+        reservas={reservas}
         onSuccess={() => {
           setFecharAberto(false)
           setItens([])
+          setReservas({})
         }}
       />
+
+      {reservandoId &&
+        (() => {
+          const it = itens.find((x) => x.produto.produto_id === reservandoId)
+          if (!it) return null
+          return (
+            <ReservaProjetoDialog
+              aberto
+              onFechar={() => setReservandoId(null)}
+              produtoId={it.produto.produto_id}
+              produtoNome={it.produto.produto}
+              quantidadeItem={lerQtd(it.quantidade)}
+              valores={reservas[it.produto.produto_id] ?? []}
+              onSalvar={(lista) => setReservas((r) => ({ ...r, [it.produto.produto_id]: lista }))}
+            />
+          )
+        })()}
     </div>
   )
 }

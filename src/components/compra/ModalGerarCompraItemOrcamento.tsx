@@ -48,6 +48,7 @@ import {
   type Empresa,
 } from '@/services/pedido-compra'
 import type { LinhaCarrinho } from '@/services/necessidade-compra-item'
+import { reservarPedidoItemParaProjeto, type ReservaEscolhida } from '@/services/reserva-projeto'
 import {
   CampoPercentual,
   TotaisCompra,
@@ -96,6 +97,8 @@ interface Props {
   itens: LinhaCarrinho[]
   fornecedorId: string
   fornecedorNome: string
+  /** SPEC-299: reserva por produto_id (compra adiantada para projeto ainda sem venda) */
+  reservas?: Record<string, ReservaEscolhida[]>
   onSuccess: () => void
 }
 
@@ -130,6 +133,7 @@ export function ModalGerarCompraItemOrcamento({
   itens,
   fornecedorId,
   fornecedorNome,
+  reservas,
   onSuccess,
 }: Props) {
   const { toast } = useToast()
@@ -480,6 +484,24 @@ export function ModalGerarCompraItemOrcamento({
         }
       }
 
+      // SPEC-299: reserva da quantidade para o projeto (compra adiantada) — item da peça por índice
+      for (let i = 0; i < ativas.length; i++) {
+        const lista = reservas?.[ativas[i].produto_id] ?? []
+        if (lista.length === 0) continue
+        const itemCriado = result.itens[i]
+        if (!itemCriado) {
+          falhas.push(`${ativas[i].produto}: reserva não gravada (item do pedido não retornado).`)
+          continue
+        }
+        for (const r of lista) {
+          try {
+            await reservarPedidoItemParaProjeto(itemCriado.pedido_item_id, r.projeto_id, r.quantidade)
+          } catch (err: any) {
+            falhas.push(`${ativas[i].produto} → projeto ${r.projeto_codigo}: ${err?.message ?? 'erro na reserva'}`)
+          }
+        }
+      }
+
       // SPEC-209 C2: com condição de pagamento, as parcelas saem junto (previsão de pagamento).
       let avisoParcelas = ''
       if (condicoesPagamento.trim()) {
@@ -497,7 +519,7 @@ export function ModalGerarCompraItemOrcamento({
 
       if (falhas.length > 0) {
         toast({
-          title: `Pedido #${result.numero} criado, mas ${falhas.length} vínculo(s) de origem falharam`,
+          title: `Pedido #${result.numero} criado, mas ${falhas.length} vínculo(s)/reserva(s) falharam`,
           description: falhas.join(' | ') + avisoParcelas,
           variant: 'destructive',
         })

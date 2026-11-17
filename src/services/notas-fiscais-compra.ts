@@ -40,6 +40,8 @@ export interface PedidoParaEntrada {
     valor_icms: number
     /** SPEC-220: L de origem desta linha (sugestão de para quem vai o que chegou). */
     origens: string[]
+    /** SPEC-299: códigos dos projetos para os quais este item foi reservado (compra adiantada) */
+    projetos_reservados: string[]
   }>
 }
 
@@ -85,6 +87,18 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
     .eq('pedido_id', pedido.id)
     .order('criado_em', { ascending: true })
 
+  // SPEC-299: reservas para projeto (sem permissão/erro = sem sugestão extra, a entrada segue normal)
+  const reservadosPorItem = new Map<string, string[]>()
+  try {
+    const { data: dest } = await (supabase as any).rpc('destinos_projeto_do_pedido', { p_pedido_id: pedido.id })
+    for (const d of (dest ?? []) as any[]) {
+      if (d.liberado_em) continue
+      reservadosPorItem.set(d.pedido_compra_item_id, [...(reservadosPorItem.get(d.pedido_compra_item_id) ?? []), d.projeto_codigo])
+    }
+  } catch {
+    /* sem reservas */
+  }
+
   return {
     id: pedido.id,
     numero: pedido.numero,
@@ -109,6 +123,7 @@ export async function buscarPedidoPorNumero(numero: string): Promise<PedidoParaE
       valor_ipi: Number(i.valor_ipi) || 0,
       valor_icms: Number(i.valor_icms) || 0,
       origens: ((i.pedido_compra_item_origem ?? []) as any[]).map((o) => o.projeto_item_id).filter(Boolean),
+      projetos_reservados: reservadosPorItem.get(i.id) ?? [],
     })),
   }
 }

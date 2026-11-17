@@ -547,6 +547,7 @@ export default function EntradaNotaFiscal() {
           g.itens.flatMap((i) => i.origens),
           entregas.filter((e) => e.produto_id === g.produto_id),
           podeHeranca,
+          g.itens.flatMap((i) => i.projetos_reservados ?? []),
         )
       }
       return novo

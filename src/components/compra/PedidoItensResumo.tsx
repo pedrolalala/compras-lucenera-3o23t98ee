@@ -3,6 +3,15 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getItensDoPedido, type ItemDoPedido } from '@/services/pedido-compra'
 import { brl } from '@/components/compra/custo-compra'
+import {
+  getDestinosProjetoDoPedido,
+  liberarDestinoProjeto,
+  getAvisosVendaCanceladaDoPedido,
+  marcarAvisoVendaCanceladaVisto,
+  type AvisoVendaCancelada,
+  type DestinoProjetoPedido,
+} from '@/services/reserva-projeto'
+import { useToast } from '@/hooks/use-toast'
 
 // SPEC-209: itens do pedido ao abrir a linha em Pedidos — pedido x recebido (entrada) por item.
 // SPEC-291: em pedido "Concluído parcialmente" lista primeiro só o que falta; as peças 100% recebidas
@@ -11,6 +20,52 @@ export function PedidoItensResumo({ pedidoId, parcial = false }: { pedidoId: str
   const [itens, setItens] = useState<ItemDoPedido[] | null>(null)
   const [erro, setErro] = useState(false)
   const [verRecebidas, setVerRecebidas] = useState(false)
+  // SPEC-299: reservas para projeto (compra adiantada)
+  const { toast } = useToast()
+  const [destinos, setDestinos] = useState<DestinoProjetoPedido[]>([])
+  const carregarDestinos = () =>
+    getDestinosProjetoDoPedido(pedidoId)
+      .then((d) => setDestinos(d.filter((x) => !x.liberado_em)))
+      .catch(() => setDestinos([]))
+  async function liberar(d: DestinoProjetoPedido) {
+    const motivo = window.prompt(
+      `Liberar a reserva de ${d.quantidade} un. do projeto ${d.projeto_codigo}? A peça volta a cobrir qualquer venda.
+Motivo:`,
+    )
+    if (!motivo?.trim()) return
+    try {
+      await liberarDestinoProjeto(d.id, motivo.trim())
+      toast({ title: 'Reserva liberada' })
+      carregarDestinos()
+    } catch (e: any) {
+      toast({ title: 'Não foi possível liberar', description: e?.message, variant: 'destructive' })
+    }
+  }
+
+  // SPEC-321: vendas canceladas que estavam ligadas a este pedido
+  const [avisos, setAvisos] = useState<AvisoVendaCancelada[]>([])
+  const carregarAvisos = () =>
+    getAvisosVendaCanceladaDoPedido(pedidoId)
+      .then(setAvisos)
+      .catch(() => setAvisos([]))
+  async function marcarVisto(id: string) {
+    try {
+      await marcarAvisoVendaCanceladaVisto(id)
+      carregarAvisos()
+    } catch (e: any) {
+      toast({ title: 'Não foi possível marcar como visto', description: e?.message, variant: 'destructive' })
+    }
+  }
+
+  useEffect(() => {
+    carregarAvisos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoId])
+
+  useEffect(() => {
+    carregarDestinos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoId])
 
   useEffect(() => {
     setItens(null)
@@ -36,11 +91,52 @@ export function PedidoItensResumo({ pedidoId, parcial = false }: { pedidoId: str
     <td className="py-1 text-slate-700">
       {i.produto_codigo && <span className="font-mono text-slate-400 mr-1.5">{i.produto_codigo}</span>}
       {i.produto_nome}
+      {destinos
+        .filter((d) => d.pedido_compra_item_id === i.id)
+        .map((d) => (
+          <span key={d.id} className="block text-[11px] text-emerald-700 font-medium">
+            Compra adiantada: {d.quantidade} un. reservadas para o projeto {d.projeto_codigo} ({d.cliente_nome})
+            <button type="button" className="ml-2 underline text-slate-500 hover:text-red-600" onClick={() => liberar(d)}>
+              liberar
+            </button>
+          </span>
+        ))}
     </td>
   )
 
   return (
     <div className="px-10 pt-3 pb-1 bg-slate-50/60">
+      {avisos.map((a) => (
+        <div
+          key={a.id}
+          className={cn(
+            'mb-2 rounded border p-2 text-xs',
+            a.visto_em ? 'border-slate-200 bg-white text-slate-600' : 'border-red-300 bg-red-50 text-red-900',
+          )}
+        >
+          <p className="font-semibold">
+            Venda cancelada{a.venda_numero ? ` ${a.venda_numero}` : ''} — {a.cliente_nome ?? 'cliente'}
+            {a.projeto_codigo ? ` (projeto ${a.projeto_codigo})` : ''}
+          </p>
+          <p>
+            Cancelada por {a.cancelado_por_nome ?? 'usuário'} em {new Date(a.cancelado_em).toLocaleString('pt-BR')}
+            {a.motivo ? `: ${a.motivo}` : ''}. As peças abaixo entram no <strong>Estoque Geral</strong> quando chegarem;
+            decida com o fornecedor se mantém, reduz ou cancela o pedido.
+          </p>
+          <ul className="mt-1">
+            {(a.itens ?? []).map((i, idx) => (
+              <li key={idx}>
+                {i.quantidade}× {i.produto}
+              </li>
+            ))}
+          </ul>
+          {!a.visto_em && (
+            <button type="button" className="mt-1 underline" onClick={() => marcarVisto(a.id)}>
+              Marcar como visto
+            </button>
+          )}
+        </div>
+      ))}
       <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
         {parcial ? 'O que falta chegar' : 'Itens'}
       </p>

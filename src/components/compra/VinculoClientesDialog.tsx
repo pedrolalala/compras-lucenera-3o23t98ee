@@ -26,9 +26,15 @@ export function sugerirVinculos(
   origens: string[],
   entregas: EntregaFutura[],
   podeHeranca = false,
+  projetosReservados: string[] = [],
 ) {
+  // SPEC-299: projetos para os quais o pedido foi reservado (compra adiantada) vêm antes dos L de origem
+  const doReservado = entregas.filter((e) => e.projeto_codigo && projetosReservados.includes(e.projeto_codigo))
   const ordem = [
-    ...origens.map((id) => entregas.find((e) => e.projeto_item_id === id)).filter(Boolean),
+    ...doReservado,
+    ...origens
+      .map((id) => entregas.find((e) => e.projeto_item_id === id))
+      .filter((e) => e && !doReservado.includes(e)),
   ].filter((e) => podeHeranca || (e as EntregaFutura).origem !== 'connect') as EntregaFutura[]
   let resta = chegou
   const r: Record<string, string> = {}
