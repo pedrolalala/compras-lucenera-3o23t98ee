@@ -115,11 +115,12 @@ Motivo:`,
           )}
         >
           <p className="font-semibold">
-            Venda cancelada{a.venda_numero ? ` ${a.venda_numero}` : ''} — {a.cliente_nome ?? 'cliente'}
+            {a.tipo === 'aprovacao_desfeita' ? 'Aprovação da venda desfeita' : 'Venda cancelada'}
+            {a.venda_numero ? ` ${a.venda_numero}` : ''} — {a.cliente_nome ?? 'cliente'}
             {a.projeto_codigo ? ` (projeto ${a.projeto_codigo})` : ''}
           </p>
           <p>
-            Cancelada por {a.cancelado_por_nome ?? 'usuário'} em {new Date(a.cancelado_em).toLocaleString('pt-BR')}
+            {a.tipo === 'aprovacao_desfeita' ? 'Desfeita' : 'Cancelada'} por {a.cancelado_por_nome ?? 'usuário'} em {new Date(a.cancelado_em).toLocaleString('pt-BR')}
             {a.motivo ? `: ${a.motivo}` : ''}. As peças abaixo entram no <strong>Estoque Geral</strong> quando chegarem;
             decida com o fornecedor se mantém, reduz ou cancela o pedido.
           </p>

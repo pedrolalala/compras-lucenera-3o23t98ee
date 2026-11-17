@@ -81,12 +81,13 @@ export interface AvisoVendaCancelada {
   cancelado_por_nome: string | null
   cancelado_em: string
   visto_em: string | null
+  tipo: string | null
 }
 
 export async function getAvisosVendaCanceladaDoPedido(pedidoId: string): Promise<AvisoVendaCancelada[]> {
   const { data, error } = await (supabase as any)
     .from('pedido_compra_aviso_cancelamento')
-    .select('id, orcamento_numero, venda_numero, projeto_codigo, cliente_nome, motivo, itens, cancelado_por_nome, cancelado_em, visto_em')
+    .select('id, orcamento_numero, venda_numero, projeto_codigo, cliente_nome, motivo, itens, cancelado_por_nome, cancelado_em, visto_em, tipo')
     .eq('pedido_id', pedidoId)
     .order('cancelado_em', { ascending: false })
   if (error) throw error
