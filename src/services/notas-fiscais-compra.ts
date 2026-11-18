@@ -591,7 +591,11 @@ export async function buscarProdutosParaEntrada(termo: string): Promise<ProdutoB
     .split(/\s+/)
     .filter(Boolean)
     .forEach((term) => {
-      query = query.or(`nome.ilike.%${term}%,referencia.ilike.%${term}%`)
+      // SPEC-323 A1: termo só com dígitos também casa o código da peça
+      // (codigo_produto é integer: comparação exata, ilike não existe para integer).
+      // Nunca filtra por fornecedor: a nota pode ser de qualquer fornecedor.
+      const porCodigo = /^\d{1,9}$/.test(term) ? `,codigo_produto.eq.${parseInt(term, 10)}` : ''
+      query = query.or(`nome.ilike.%${term}%,referencia.ilike.%${term}%${porCodigo}`)
     })
   const { data, error } = await query
   if (error) throw error
