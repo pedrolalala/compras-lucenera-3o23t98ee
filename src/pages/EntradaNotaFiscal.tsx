@@ -50,6 +50,7 @@ import {
   buscarProdutosParaEntrada,
   cancelarEntradaNotaCompra,
   criarNotaFiscalCompra,
+  criarEntradaNotaAvulsa,
   datasDasParcelas,
   formatarDocumento,
   getAntecipacoesParaEntrada,
@@ -156,6 +157,8 @@ export default function EntradaNotaFiscal() {
   const [produtoBusca, setProdutoBusca] = useState('')
   const [produtoResultados, setProdutoResultados] = useState<ProdutoBusca[]>([])
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoBusca | null>(null)
+  // SPEC-323 A3: quantidade da entrada avulsa (soma no Estoque Geral; vazio = só registra a nota)
+  const [quantidadeAvulsa, setQuantidadeAvulsa] = useState('')
   const [buscandoProduto, setBuscandoProduto] = useState(false)
 
   const [numeroNf, setNumeroNf] = useState('')
@@ -452,6 +455,7 @@ export default function EntradaNotaFiscal() {
     setFornecedorBusca('')
     setEmpresaId('')
     setProdutoSelecionado(null)
+    setQuantidadeAvulsa('')
     setProdutoBusca('')
     setNumeroNf('')
     setDataEmissao('')
@@ -799,18 +803,33 @@ export default function EntradaNotaFiscal() {
       }
 
       // Entrada avulsa (sem pedido): só a nota, como antes.
-      await criarNotaFiscalCompra({
-        pedido_compra_id: null,
+      const qtdAvulsa = quantidadeAvulsa ? parseFloat(quantidadeAvulsa.replace(',', '.')) : 0
+      if (qtdAvulsa > 0 && !produtoSelecionado) {
+        toast({
+          title: 'Escolha a peça',
+          description: 'Para somar a quantidade no estoque, selecione a peça da nota.',
+          variant: 'destructive',
+        })
+        return
+      }
+      const rAvulsa = await criarEntradaNotaAvulsa({
         fornecedor_id: fornecedorSelecionado!.id,
         empresa_id: empresaId || null,
         produto_id: produtoSelecionado?.id || null,
+        quantidade: qtdAvulsa > 0 ? qtdAvulsa : 0,
         numero_nf: numeroNf,
         data_emissao: dataEmissao || null,
         valor: valor ? parseFloat(valor) : null,
         observacao: observacao || null,
         arquivo,
       })
-      toast({ title: 'Entrada de nota fiscal registrada' })
+      toast({
+        title: 'Entrada de nota fiscal registrada',
+        description:
+          rAvulsa.estoque_somado > 0
+            ? `${fmtQtd(rAvulsa.estoque_somado)} peça(s) entraram no Estoque Geral.`
+            : 'Só a nota foi registrada (sem quantidade, o estoque não mudou).',
+      })
       limparFormulario()
       carregarHistorico()
     } catch (err: any) {
@@ -1310,6 +1329,19 @@ export default function EntradaNotaFiscal() {
                     )}
                   </>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Quantidade da nota (soma no Estoque Geral)</Label>
+                <Input
+                  inputMode="decimal"
+                  placeholder="Ex.: 10 — vazio = só registra a nota"
+                  value={quantidadeAvulsa}
+                  onChange={(e) => setQuantidadeAvulsa(e.target.value)}
+                />
+                <p className="text-xs text-slate-500">
+                  Só preencha se a peça ainda não entrou no estoque deste sistema.
+                </p>
               </div>
             </div>
           )}

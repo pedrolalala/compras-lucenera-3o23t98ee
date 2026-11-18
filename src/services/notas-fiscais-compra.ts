@@ -499,6 +499,40 @@ export async function criarNotaFiscalCompra(input: CriarNotaFiscalCompraInput): 
   if (error) throw error
 }
 
+// SPEC-323 A3: entrada avulsa com quantidade — nota + soma no Estoque Geral na mesma transação (RPC).
+// Fornecedor livre (não depende do fornecedor principal da peça). Quantidade 0 = só registra a nota.
+export async function criarEntradaNotaAvulsa(input: {
+  fornecedor_id: string
+  empresa_id?: string | null
+  produto_id?: string | null
+  quantidade: number
+  numero_nf: string
+  data_emissao?: string | null
+  valor?: number | null
+  observacao?: string | null
+  arquivo?: File | null
+}): Promise<{ nota_id: string; estoque_somado: number }> {
+  const arquivoUrl = input.arquivo
+    ? await uploadArquivoNotaFiscalCompra(input.arquivo, 'avulsa')
+    : null
+  const { data, error } = await (supabase as any).rpc('registrar_entrada_nota_avulsa', {
+    p_fornecedor_id: input.fornecedor_id,
+    p_empresa_id: input.empresa_id || null,
+    p_produto_id: input.produto_id || null,
+    p_quantidade: input.quantidade,
+    p_nota: {
+      numero_nf: input.numero_nf.trim(),
+      data_emissao: input.data_emissao || null,
+      valor: input.valor ?? null,
+      observacao: input.observacao?.trim() || null,
+      arquivo_url: arquivoUrl,
+    },
+  })
+  if (error) throw error
+  const r = (data ?? {}) as any
+  return { nota_id: r.nota_id, estoque_somado: Number(r.estoque_somado ?? 0) }
+}
+
 export interface NotaFiscalCompraRow {
   id: string
   numero_nf: string
