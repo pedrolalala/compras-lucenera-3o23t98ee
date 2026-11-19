@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Loader2, Pencil, Plus, Search } from 'lucide-react'
+import { Loader2, Pencil, Plus, RefreshCw, Search } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { buscarProdutosParaPedido, type EstoqueProdutoRow } from '@/services/estoque-produtos'
@@ -38,6 +38,7 @@ import {
   getItensDoPedido,
   getItensPorCaixa,
   getProdutoImpostos,
+  getProdutoImpostosBulk,
   definirPercentuaisParcelasPedido,
   type Empresa,
   type EditarPedidoItem,
@@ -84,6 +85,8 @@ interface LinhaEdicao {
   custoManual?: boolean
   descontoCaixa?: number
   itensPorCaixa?: number
+  // SPEC-330: ST/IPI desta linha vieram do cadastro da peça (e ainda não foram mexidos à mão)
+  doCadastro?: boolean
 }
 
 // SPEC-240 C: com desconto de caixa fechada o custo vem com o desconto enquanto a quantidade fecha caixa.
@@ -147,6 +150,9 @@ export function EditarPedidoDialog({
   const [busca, setBusca] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [resultados, setResultados] = useState<EstoqueProdutoRow[]>([])
+  // SPEC-330: quantas linhas foram preenchidas com o ST/IPI do cadastro ao abrir o pedido
+  const [preenchidasCadastro, setPreenchidasCadastro] = useState(0)
+  const [puxando, setPuxando] = useState(false)
 
   useEffect(() => {
     if (!busca.trim()) {
@@ -181,13 +187,13 @@ export function EditarPedidoDialog({
       .then(setEmpresas)
       .catch(() => setEmpresas([]))
     setCarregando(true)
+    setPreenchidasCadastro(0)
     getItensDoPedido(pedido.id)
-      .then((itens) => {
+      .then(async (itens) => {
         // SPEC-213: agrupa por peça, na ordem em que aparece no pedido
         const grupos = new Map<string, typeof itens>()
         for (const i of itens) grupos.set(i.produto_id, [...(grupos.get(i.produto_id) ?? []), i])
-        setLinhas(
-          Array.from(grupos.values()).map((grupo) => {
+        const linhasCarregadas: LinhaEdicao[] = Array.from(grupos.values()).map((grupo) => {
             const i = grupo[0]
             const base = i.custo_liquido ?? i.custo_unitario
             return {
@@ -202,8 +208,29 @@ export function EditarPedidoDialog({
               outrasPerc: percentualDoValor(i.valor_outras_despesas, base),
               remover: false,
             }
-          }),
-        )
+          })
+        // SPEC-330: pedido trazido da Connect vem sem ST/IPI gravado; o certo é o cadastro da peça
+        const semImposto = linhasCarregadas.filter((l) => !l.stPerc && !l.ipiPerc)
+        let preenchidas = 0
+        let comCadastro = linhasCarregadas
+        if (semImposto.length > 0) {
+          try {
+            const dados = await getProdutoImpostosBulk(semImposto.map((l) => l.id), pedido.fornecedor_id)
+            comCadastro = linhasCarregadas.map((l) => {
+              if (l.stPerc || l.ipiPerc) return l
+              const d = dados.get(l.id)
+              const st = percentualParaCampo(d?.porcStPerc)
+              const ipi = percentualParaCampo(d?.ipiEntradaPerc)
+              if (!st && !ipi) return l
+              preenchidas += 1
+              return { ...l, stPerc: st, ipiPerc: ipi, doCadastro: true }
+            })
+          } catch {
+            // sem acesso ao cadastro: segue com o que está gravado (o botão Puxar tenta de novo)
+          }
+        }
+        setLinhas(comCadastro)
+        setPreenchidasCadastro(preenchidas)
       })
       .catch((err) =>
         toast({
@@ -220,6 +247,7 @@ export function EditarPedidoDialog({
       prev.map((l) => {
         if (l.id !== id) return l
         const nova = { ...l, [campo]: valor } as LinhaEdicao
+        if (campo === 'stPerc' || campo === 'ipiPerc') nova.doCadastro = false
         if (!l.nova) return nova
         if (campo === 'custoLiquido') return { ...nova, custoManual: true }
         if (campo === 'quantidade') return comDescontoCaixa(nova)
@@ -268,6 +296,45 @@ export function EditarPedidoDialog({
       setLinhas((prev) => [...prev, linha])
     } catch (err: any) {
       toast({ title: 'Não foi possível incluir a peça', description: err?.message, variant: 'destructive' })
+    }
+  }
+
+  // SPEC-330: refaz o ST e o IPI das linhas do pedido pelo cadastro da peça (só onde o cadastro tem valor)
+  async function puxarImpostosDoCadastro() {
+    if (!pedido) return
+    const alvo = linhas.filter((l) => !l.remover && !l.nova)
+    if (alvo.length === 0) return
+    setPuxando(true)
+    try {
+      const dados = await getProdutoImpostosBulk(alvo.map((l) => l.id), pedido.fornecedor_id)
+      let atualizadas = 0
+      let semCadastro = 0
+      setLinhas((prev) =>
+        prev.map((l) => {
+          if (l.remover || l.nova) return l
+          const d = dados.get(l.id)
+          const st = percentualParaCampo(d?.porcStPerc)
+          const ipi = percentualParaCampo(d?.ipiEntradaPerc)
+          if (!st && !ipi) {
+            semCadastro += 1
+            return l
+          }
+          atualizadas += 1
+          return { ...l, stPerc: st, ipiPerc: ipi, doCadastro: true }
+        }),
+      )
+      setPreenchidasCadastro(0)
+      toast({
+        title: 'ST e IPI puxados do cadastro',
+        description:
+          `${atualizadas} linha(s) atualizada(s)` +
+          (semCadastro > 0 ? `; ${semCadastro} sem ST/IPI no cadastro (mantidas como estão).` : '.') +
+          ' Confira o total e salve.',
+      })
+    } catch (err: any) {
+      toast({ title: 'Não foi possível puxar do cadastro', description: err?.message, variant: 'destructive' })
+    } finally {
+      setPuxando(false)
     }
   }
 
@@ -436,6 +503,31 @@ export function EditarPedidoDialog({
               )}
             </div>
 
+            {/* SPEC-330: o ST e o IPI vêm do cadastro da peça */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p
+                className={cn(
+                  'text-xs',
+                  preenchidasCadastro > 0 ? 'font-medium text-amber-800' : 'text-slate-500',
+                )}
+              >
+                {preenchidasCadastro > 0
+                  ? `${preenchidasCadastro} linha(s) estavam sem ST/IPI e foram preenchidas com o cadastro da peça. Confira o total e salve.`
+                  : 'O ST e o IPI vêm do cadastro da peça.'}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                onClick={puxarImpostosDoCadastro}
+                disabled={carregando || salvando || puxando}
+              >
+                {puxando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Puxar ST/IPI do cadastro
+              </Button>
+            </div>
+
             <div className="border border-slate-200 rounded-lg overflow-x-auto">
               <Table>
                 <TableHeader className="bg-slate-50">
@@ -462,6 +554,11 @@ export function EditarPedidoDialog({
                         {l.nova && (
                           <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                             Nova
+                          </span>
+                        )}
+                        {l.doCadastro && !l.nova && (
+                          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            ST/IPI do cadastro
                           </span>
                         )}
                         {/* SPEC-213: de quais L vem a quantidade somada */}
